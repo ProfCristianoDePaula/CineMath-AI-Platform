@@ -16,6 +16,7 @@ export interface StreamingOption {
 
 export interface Movie {
   id: string;
+  tmdbId?: number;
   title: string;
   tagline: string;
   originalTitle?: string;
@@ -29,6 +30,7 @@ export interface Movie {
   posterUrl: string;
   backdropUrl: string;
   trailerStillUrl?: string;
+  trailerYoutubeKey?: string;
   synopsis: string;
   aiMatchReason: string;
   matchHighlights: string[];

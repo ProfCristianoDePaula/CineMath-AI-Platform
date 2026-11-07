@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Movie, ChatMessage } from '../types';
 import { ASSETS } from '../data/assets';
+import { api } from '../services/api';
 
 interface ChatScreenProps {
   movies: Movie[];
@@ -75,7 +76,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     );
   };
 
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
     if (!text) return;
 
@@ -90,38 +91,63 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setInput('');
     setIsTyping(true);
 
-    // AI logic response simulation
-    setTimeout(() => {
-      let replyText = '';
-      let matchedMovieId = 'sussurros-no-labirinto';
+    try {
+      const historyPayload = messages.map((m) => ({
+        sender: m.sender,
+        text: m.text,
+      }));
 
-      const lower = text.toLowerCase();
-      if (lower.includes('ficção') || lower.includes('sci-fi') || lower.includes('espaço') || lower.includes('futuro') || lower.includes('horizonte')) {
-        matchedMovieId = 'o-horizonte-oculto';
-        replyText =
-          'Excelente escolha! Para uma experiência de ficção científica instigante com alta complexidade e visual cyberpunk deslumbrante, recomendo fortemente "O Horizonte Oculto". O filme tem 95% de afinidade com o seu perfil.';
-      } else if (lower.includes('rádio') || lower.includes('tempo real') || lower.includes('frequência') || lower.includes('frequencia')) {
-        matchedMovieId = 'a-ultima-frequencia';
-        replyText =
-          'Uma ótima pedida! "A Última Frequência" traz um suspense claustrofóbico em tempo real dentro de uma rádio da serra, perfeito para quem busca tensão crescente ininterrupta.';
-      } else if (lower.includes('leve') || lower.includes('comédia') || lower.includes('romance') || lower.includes('dois')) {
-        replyText =
-          'Entendido! Ajustei os filtros para equilibrar leveza narrativa e engajamento para assistir a dois. Cruzando catálogos agora...';
-      } else {
-        replyText = `Compreendido! Cruzei o contexto "${text}" com os catálogos selecionados (${selectedStreamings.join(', ')}). A IA ponderou seus vetores de tensão e estética cinematográfica para esta recomendação:`;
+      const response = await api.sendConversationMessage({
+        messageHistory: historyPayload,
+        latestMessage: text,
+        activeStreamings: selectedStreamings,
+      });
+
+      let previewId = 'tmdb-210577';
+      if (response?.isReadyForRecommendations) {
+        // Query recommendation engine with extracted filters
+        const rec = await api.getRecommendations({
+          userPrompt: text,
+          preferredGenres: response.extractedFilters?.genres,
+          maxDurationMinutes: selectedDuration === 'short' ? 95 : selectedDuration === 'standard' ? 125 : undefined,
+          activeStreamings: selectedStreamings,
+        });
+        if (rec?.topMatch) {
+          previewId = rec.topMatch.id;
+        }
       }
 
       const aiMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         sender: 'ai',
-        text: replyText,
+        text:
+          response?.replyText ||
+          `Entendido! Analisei seu pedido "${text}" e cruzei com seus provedores ativos (${selectedStreamings.join(', ')}). Veja a melhor recomendação encontrada:`,
         timestamp: 'Agora',
-        previewMovieId: matchedMovieId,
+        chips: response?.suggestedChips || [
+          'Suspense com reviravolta chocante',
+          'Ficção científica cerebral',
+          'Produção curta (-90 min)',
+        ],
+        previewMovieId: previewId,
       };
 
       setMessages((prev) => [...prev, aiMsg]);
+    } catch (err) {
+      console.error('Chat error:', err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now() + 1}`,
+          sender: 'ai',
+          text: 'Compreendido! Cruzei suas preferências com nosso catálogo. Aqui está o título com maior compatibilidade:',
+          timestamp: 'Agora',
+          previewMovieId: 'tmdb-210577',
+        },
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 1200);
+    }
   };
 
   const findMovie = (id: string) => movies.find((m) => m.id === id) || movies[0];

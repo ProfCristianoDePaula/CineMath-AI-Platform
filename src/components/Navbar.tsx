@@ -1,7 +1,7 @@
 import React from 'react';
 import { ASSETS } from '../data/assets';
 
-export type ScreenType = 'home' | 'chat' | 'neural' | 'matches' | 'detail' | 'watchlist';
+export type ScreenType = 'home' | 'chat' | 'neural' | 'matches' | 'detail' | 'watchlist' | 'drive';
 
 interface NavbarProps {
   currentScreen: ScreenType;
@@ -9,6 +9,7 @@ interface NavbarProps {
   connectedStreamingsCount: number;
   onOpenStreamings: () => void;
   watchlistCount: number;
+  isDriveConnected?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,6 +18,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   connectedStreamingsCount,
   onOpenStreamings,
   watchlistCount,
+  isDriveConnected,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
@@ -26,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'neural', label: 'Processamento Neural', icon: 'neurology' },
     { id: 'matches', label: 'Recomendações', icon: 'auto_awesome' },
     { id: 'watchlist', label: `Minha Lista ${watchlistCount > 0 ? `(${watchlistCount})` : ''}`, icon: 'bookmark' },
+    { id: 'drive', label: 'Google Drive', icon: 'cloud' },
   ];
 
   return (
@@ -88,18 +91,28 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="material-symbols-outlined text-xs text-[#958ea0] group-hover:text-white">tune</span>
           </button>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-2 p-1 rounded-full bg-[#1a1b25] border border-white/5">
+          {/* User Profile / Drive Status */}
+          <button
+            onClick={() => onNavigate('drive')}
+            className="flex items-center gap-2 p-1 pl-1.5 rounded-full bg-[#1a1b25] hover:bg-[#282934] border border-white/5 transition-colors cursor-pointer"
+            title="Google Drive & Perfil"
+          >
             <div className="relative flex items-center justify-center">
-              <div className="absolute -inset-0.5 rounded-full bg-gradient-to-tr from-[#d0bcff] to-[#5de6ff] opacity-70 blur-[1px]"></div>
+              <div className={`absolute -inset-0.5 rounded-full ${isDriveConnected ? 'bg-gradient-to-tr from-[#34A853] to-[#4285F4]' : 'bg-gradient-to-tr from-[#d0bcff] to-[#5de6ff]'} opacity-70 blur-[1px]`}></div>
               <img
                 alt="Profile"
                 className="relative w-8 h-8 rounded-full object-cover"
                 src={ASSETS.userAvatar}
               />
             </div>
-            <span className="hidden md:inline text-xs font-medium text-[#e2e1f0] pr-2">Cristiano</span>
-          </div>
+            <div className="hidden md:flex flex-col text-left pr-2">
+              <span className="text-xs font-medium text-[#e2e1f0] leading-tight">Cristiano</span>
+              <span className={`text-[9px] font-semibold flex items-center gap-1 ${isDriveConnected ? 'text-[#4edea3]' : 'text-[#8ab4f8]'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isDriveConnected ? 'bg-[#4edea3]' : 'bg-[#4285F4]'}`}></span>
+                {isDriveConnected ? 'Drive Conectado' : 'Conectar Drive'}
+              </span>
+            </div>
+          </button>
 
           {/* Mobile Menu Button */}
           <button

@@ -1,0 +1,150 @@
+{
+  "users": [
+    {
+      "id": "user_default",
+      "name": "Cristiano",
+      "email": "prof.cristianodepaula@gmail.com",
+      "createdAt": "2026-11-07T16:42:57.410Z"
+    }
+  ],
+  "preferences": {
+    "user_default": {
+      "userId": "user_default",
+      "favoriteGenres": [
+        "Suspense",
+        "Thriller Psicológico",
+        "Ficção Científica",
+        "Mistério"
+      ],
+      "rejectedGenres": [
+        "Terror Gore",
+        "Comédia Pastelão"
+      ],
+      "streamingProviders": [
+        "Netflix",
+        "Max",
+        "Prime Video",
+        "Apple TV"
+      ],
+      "preferredContentType": "all",
+      "preferredDuration": "short",
+      "preferredLanguage": "pt-BR",
+      "updatedAt": "2026-11-07T16:42:57.410Z"
+    }
+  },
+  "watchlist": [
+    {
+      "userId": "user_default",
+      "tmdbId": 210577,
+      "movieId": "sussurros-no-labirinto",
+      "mediaType": "movie",
+      "title": "Sussurros no Labirinto",
+      "posterPath": "https://image.tmdb.org/t/p/w500/qymaXPArWIt1DHqG3JNsEsvOzEN.jpg",
+      "releaseYear": 2024,
+      "durationMinutes": 88,
+      "genres": [
+        "Thriller"
+      ],
+      "watched": true,
+      "id": "wl_1794069802586_5xtdh",
+      "addedAt": "2026-11-07T16:43:22.586Z",
+      "userRating": 5
+    },
+    {
+      "id": "wl_1",
+      "userId": "user_default",
+      "tmdbId": 550,
+      "mediaType": "movie",
+      "title": "Clube da Luta",
+      "posterPath": "https://image.tmdb.org/t/p/w500/bptfVGEQuv6vDTIMVCHjJ9Dz8PX.jpg",
+      "releaseYear": 1999,
+      "durationMinutes": 139,
+      "genres": [
+        "Drama",
+        "Thriller"
+      ],
+      "addedAt": "2026-11-07T16:42:57.410Z",
+      "watched": false
+    },
+    {
+      "id": "wl_2",
+      "userId": "user_default",
+      "tmdbId": 157336,
+      "mediaType": "movie",
+      "title": "Interestelar",
+      "posterPath": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+      "releaseYear": 2014,
+      "durationMinutes": 169,
+      "genres": [
+        "Ficção Científica",
+        "Drama"
+      ],
+      "addedAt": "2026-11-07T16:42:57.410Z",
+      "watched": true,
+      "userRating": 5,
+      "userNote": "Obra-prima da ficção científica moderna."
+    }
+  ],
+  "history": [
+    {
+      "userId": "user_default",
+      "tmdbId": 210577,
+      "mediaType": "movie",
+      "title": "Sussurros no Labirinto",
+      "interactionType": "watched",
+      "id": "hist_1794069812146_qdn09",
+      "createdAt": "2026-11-07T16:43:32.146Z"
+    },
+    {
+      "id": "hist_1",
+      "userId": "user_default",
+      "tmdbId": 157336,
+      "mediaType": "movie",
+      "title": "Interestelar",
+      "interactionType": "watched",
+      "createdAt": "2026-11-07T16:42:57.410Z"
+    }
+  ],
+  "conversations": {
+    "default_session": {
+      "id": "conv_default_session",
+      "sessionId": "default_session",
+      "messages": [
+        {
+          "id": "msg_1794071051078",
+          "sender": "user",
+          "text": "Quero rir bastante com uma comédia leve para ver com a família",
+          "timestamp": "2026-11-07T17:04:11.078Z"
+        },
+        {
+          "id": "msg_1794071051079",
+          "sender": "ai",
+          "text": "Entendido perfeitamente! Identifiquei seu interesse por Comédia para assistir em família nos catálogos ativos (Netflix, Prime Video). Cruzando os metadados do motor neural...",
+          "timestamp": "2026-11-07T17:04:11.078Z",
+          "chips": [
+            "Suspense com reviravolta chocante",
+            "Ficção científica cerebral",
+            "Produção curta (-90 min)",
+            "Mais avaliados pela crítica"
+          ]
+        }
+      ],
+      "extractedPreferences": {
+        "mood": "envolvente e dinâmico",
+        "genres": [
+          "Comédia"
+        ],
+        "viewingContext": "family",
+        "streamings": [
+          "Netflix",
+          "Prime Video"
+        ],
+        "keywords": [
+          "quero rir bastante com uma comédia leve "
+        ]
+      },
+      "createdAt": "2026-11-07T17:04:11.078Z",
+      "updatedAt": "2026-11-07T17:04:11.078Z"
+    }
+  }
+}

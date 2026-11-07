@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Movie } from '../types';
 import { ASSETS } from '../data/assets';
+import { api } from '../services/api';
 
 interface HomeScreenProps {
   movies: Movie[];
@@ -21,6 +22,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onToggleWatchlist,
   isWatchlisted,
 }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Movie[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await api.searchMovies(searchQuery.trim());
+        setSearchResults(res);
+      } catch (e) {
+        console.error('Search error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   const quickMoods = [
     { label: 'Suspense que prende do início ao fim', icon: 'psychology', prompt: 'Quero um suspense psicológico bem tenso, estilo Garota Exemplar ou Ilha do Medo, com fotografia impecável e disponível na Netflix ou Max.' },
     { label: 'Ficção científica reflexiva e futurista', icon: 'rocket_launch', prompt: 'Busco uma ficção científica cerebral e visualmente deslumbrante, como Blade Runner 2049 ou Interestelar.' },
@@ -79,6 +105,82 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <span className="material-symbols-outlined text-[#5de6ff] text-xl">casino</span>
             <span>Me surpreenda</span>
           </button>
+        </div>
+
+        {/* Instant TMDB Catalog Search Bar */}
+        <div className="w-full max-w-xl relative mb-6">
+          <div className="relative flex items-center bg-[#1e1f29]/90 border border-white/10 focus-within:border-[#a078ff] rounded-2xl px-4 py-2.5 shadow-lg transition-all">
+            <span className="material-symbols-outlined text-[#958ea0] text-lg mr-2.5">search</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar filmes no catálogo TMDB (ex: Interestelar, Garota Exemplar...)"
+              className="w-full bg-transparent text-xs sm:text-sm text-white placeholder-[#958ea0] outline-none"
+            />
+            {isSearching && (
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin ml-2"></span>
+            )}
+            {searchQuery && !isSearching && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                }}
+                className="text-[#958ea0] hover:text-white transition-colors cursor-pointer ml-1"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            )}
+          </div>
+
+          {/* Search Results Dropdown Overlay */}
+          {searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-[#1e1f29] border border-white/10 rounded-2xl shadow-2xl p-2 z-50 max-h-80 overflow-y-auto text-left">
+              <div className="text-[10px] uppercase font-bold text-[#958ea0] px-3 py-1.5 flex justify-between">
+                <span>Resultados TMDB ({searchResults.length})</span>
+                <span className="text-[#4edea3]">Catálogo Real</span>
+              </div>
+              <div className="space-y-1">
+                {searchResults.map((m) => (
+                  <div
+                    key={m.id}
+                    onClick={() => {
+                      onSelectMovie(m);
+                      setSearchQuery('');
+                      setSearchResults([]);
+                    }}
+                    className="p-2.5 rounded-xl hover:bg-[#282934] transition-colors cursor-pointer flex items-center gap-3 group"
+                  >
+                    <img
+                      src={m.posterUrl}
+                      alt={m.title}
+                      className="w-10 h-14 object-cover rounded-lg shrink-0 shadow"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-white group-hover:text-primary transition-colors truncate">
+                          {m.title}
+                        </h4>
+                        <span className="text-[10px] text-[#958ea0] shrink-0">{m.releaseYear}</span>
+                      </div>
+                      <p className="text-[11px] text-[#958ea0] truncate">
+                        {m.genres.join(' • ')} • {m.durationMinutes} min
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-[#4edea3] font-bold">
+                          ★ {m.metrics.imdb || '8.0'}
+                        </span>
+                        <span className="text-[10px] text-[#cbc3d7]">
+                          {m.streamings[0]?.provider || 'Streaming BR'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Trust Indicator */}

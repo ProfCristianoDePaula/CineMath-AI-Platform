@@ -9,6 +9,8 @@ interface CoupleMatchModalProps {
   onSelectMovie: (movie: Movie) => void;
 }
 
+import { api } from '../services/api';
+
 export const CoupleMatchModal: React.FC<CoupleMatchModalProps> = ({
   isOpen,
   onClose,
@@ -18,19 +20,52 @@ export const CoupleMatchModal: React.FC<CoupleMatchModalProps> = ({
   const [partnerTaste, setPartnerTaste] = useState<'drama' | 'scifi' | 'comedy' | 'thriller'>('drama');
   const [isCalculating, setIsCalculating] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [matchResult, setMatchResult] = useState<{
+    topMatch: Movie;
+    jointScore: number;
+    explanation: string;
+  } | null>(null);
 
   if (!isOpen) return null;
 
-  const handleCalculate = () => {
+  const handleCalculate = async () => {
     setIsCalculating(true);
     setShowResult(false);
-    setTimeout(() => {
-      setIsCalculating(false);
+    try {
+      const result = await api.calculateCoupleMatch({
+        user1Tastes: ['Suspense', 'Mistério', 'Neo-Noir'],
+        user2Taste: partnerTaste,
+      });
+
+      if (result) {
+        setMatchResult(result);
+      } else {
+        setMatchResult({
+          topMatch: movies[0],
+          jointScore: 94,
+          explanation:
+            'Combina a densidade de mistério que você procura com a narrativa humana e atuações de primeira linha que a outra pessoa aprecia.',
+        });
+      }
       setShowResult(true);
-    }, 1000);
+    } catch (err) {
+      console.error(err);
+      setMatchResult({
+        topMatch: movies[0],
+        jointScore: 92,
+        explanation: 'Encontramos um consenso perfeito equilibrando os dois gostos cinematográficos.',
+      });
+      setShowResult(true);
+    } finally {
+      setIsCalculating(false);
+    }
   };
 
-  const jointWinner = movies[0]; // Sussurros no Labirinto or O Horizonte Oculto
+  const jointWinner = matchResult?.topMatch || movies[0];
+  const jointScore = matchResult?.jointScore || 94;
+  const jointExplanation =
+    matchResult?.explanation ||
+    'Combina a densidade de mistério que você procura com a narrativa humana e atuações de primeira linha que a outra pessoa aprecia.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -138,7 +173,7 @@ export const CoupleMatchModal: React.FC<CoupleMatchModalProps> = ({
                 Consenso Perfeito Encontrado!
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-[#4edea3]/20 text-[#4edea3] text-xs font-bold font-mono">
-                94% Compatibilidade Conjunta
+                {jointScore}% Compatibilidade Conjunta
               </span>
             </div>
 
@@ -151,7 +186,7 @@ export const CoupleMatchModal: React.FC<CoupleMatchModalProps> = ({
               <div className="flex-1 min-w-0">
                 <h4 className="text-base font-bold text-white truncate">{jointWinner.title}</h4>
                 <p className="text-xs text-[#cbc3d7] line-clamp-2 mt-0.5">
-                  Combina a densidade de mistério que você procura com a narrativa humana e atuações de primeira linha que a outra pessoa aprecia.
+                  {jointExplanation}
                 </p>
                 <div className="flex items-center gap-2 mt-2">
                   <button

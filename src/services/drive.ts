@@ -120,36 +120,28 @@ export async function exportMovieDossierToDrive(
   const textContent = `=====================================================
 CINEMATCH AI — DOSSIÊ DE ANÁLISE CINEMATOGRÁFICA
 =====================================================
-Título: ${movie.title} (${movie.releaseYear})
-Tagline: "${movie.tagline}"
-Direção: ${movie.director}
-Duração: ${movie.durationMinutes} minutos | Classificação: ${movie.ageRating}
-Qualidade de Reprodução: ${movie.qualityBadge}
-Afinidade Algorítmica: ${movie.matchScore}% Match
+Título: ${movie.title}${movie.releaseYear ? ` (${movie.releaseYear})` : ''}
+Direção: ${movie.director || 'Não informada pelo TMDB'}
+Duração: ${movie.durationMinutes ? `${movie.durationMinutes} minutos` : 'Não informada'} | Classificação: ${movie.ageRating || 'Não informada'}
+Compatibilidade calculada: ${movie.matchScore}%
 
 GÊNEROS:
 ${movie.genres.join(' • ')}
 
 ONDE ASSISTIR:
-${movie.streamings.map((s) => `- ${s.provider} [${s.quality}]: ${s.audioInfo}`).join('\n')}
+${movie.streamings.map((s) => `- ${s.provider} (${s.type})${s.externalUrl ? ` — ${s.externalUrl}` : ''}`).join('\n') || 'Não confirmada pelo TMDB'}
 
-SINOPSE CURADA (SEM SPOILERS):
+SINOPSE (TMDB):
 ${movie.synopsis}
 
-ANÁLISE NEURAL DE AFINIDADE:
+JUSTIFICATIVA:
 ${movie.aiMatchReason}
 
 DESTAQUES DO ALGORITMO:
 ${movie.matchHighlights.map((h) => `* ${h}`).join('\n')}
 
-CURVA DE INTENSIDADE DRAMÁTICA:
-${movie.emotionalArc.map((a) => `[${a.act}] ${a.title} (${a.intensity}%): ${a.description}`).join('\n')}
-
-MÉTRICAS DA CRÍTICA:
-- IMDb: ${movie.metrics.imdb} / 10
-- Rotten Tomatoes: ${movie.metrics.rottenTomatoes}%
-- Metacritic: ${movie.metrics.metacritic || 'N/A'}
-- Avaliação do Público: ${movie.metrics.audienceScore || 'N/A'}%
+AVALIAÇÃO:
+- TMDB: ${movie.metrics.tmdb || 'Não informada'} / 10 (${movie.metrics.voteCount} votos)
 
 ELENCO & PERSONAGENS:
 ${movie.cast.map((c) => `- ${c.name} como ${c.role}`).join('\n')}

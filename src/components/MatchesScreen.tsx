@@ -3,6 +3,7 @@ import { Movie } from '../types';
 
 interface MatchesScreenProps {
   movies: Movie[];
+  recommendationNotice: string;
   onSelectMovie: (movie: Movie) => void;
   onGoToChat: () => void;
   onOpenCoupleMatch: () => void;
@@ -12,6 +13,7 @@ interface MatchesScreenProps {
 
 export const MatchesScreen: React.FC<MatchesScreenProps> = ({
   movies,
+  recommendationNotice,
   onSelectMovie,
   onGoToChat,
   onOpenCoupleMatch,
@@ -21,7 +23,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
   const [selectedProvider, setSelectedProvider] = useState<string>('todos');
   const [sortBy, setSortBy] = useState<'match' | 'rating' | 'duration' | 'year'>('match');
 
-  const topMatch = movies[0]; // "Sussurros no Labirinto"
+  const topMatch = movies[0];
 
   // Filter & sort secondary movies
   const secondaryMovies = movies
@@ -31,11 +33,26 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
     })
     .sort((a, b) => {
       if (sortBy === 'match') return b.matchScore - a.matchScore;
-      if (sortBy === 'rating') return b.metrics.imdb - a.metrics.imdb;
+      if (sortBy === 'rating') return b.metrics.tmdb - a.metrics.tmdb;
       if (sortBy === 'duration') return a.durationMinutes - b.durationMinutes;
       if (sortBy === 'year') return b.releaseYear - a.releaseYear;
       return 0;
     });
+
+  if (!topMatch) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center">
+        {recommendationNotice && <p role="status" className="mb-5 rounded-xl border border-[#5de6ff]/20 bg-[#5de6ff]/5 p-4 text-sm text-[#cbc3d7]">{recommendationNotice}</p>}
+        <h1 className="text-3xl font-bold text-white">Suas recomendações aparecem aqui</h1>
+        <p className="mt-3 text-sm text-[#cbc3d7]">
+          Converse com o CineMatch para buscar títulos reais com disponibilidade confirmada no Brasil.
+        </p>
+        <button onClick={onGoToChat} className="mt-6 rounded-xl bg-[#a078ff] px-5 py-3 text-sm font-bold text-white">
+          Iniciar descoberta
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative z-10 pb-20">
@@ -44,6 +61,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
 
       {/* Screen Title */}
       <div className="mb-8">
+        {recommendationNotice && <p role="status" className="mb-4 rounded-xl border border-[#5de6ff]/20 bg-[#5de6ff]/5 p-4 text-sm text-[#cbc3d7]">{recommendationNotice}</p>}
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#4edea3]/20 text-[#4edea3] text-xs font-bold uppercase tracking-wider mb-2 border border-[#4edea3]/30">
           <span className="material-symbols-outlined text-sm">verified</span>
           Recomendações Prontas
@@ -52,7 +70,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
           Encontramos algo perfeito para você!
         </h1>
         <p className="text-sm sm:text-base text-[#cbc3d7] mt-1 max-w-2xl">
-          Baseado no seu pedido por suspense psicológico tenso com cinematografia impecável e menos de 90 minutos.
+          Recomendações calculadas a partir das preferências informadas e da disponibilidade consultada para o Brasil.
         </p>
       </div>
 
@@ -94,18 +112,12 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
             <div>
               {/* Metadata Badges */}
               <div className="flex flex-wrap items-center gap-2 mb-3">
-                <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-xs font-bold">
-                  {topMatch.releaseYear}
-                </span>
-                <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-xs font-bold">
-                  {topMatch.durationMinutes} min (Menos de 1h30)
-                </span>
-                <span className="px-2.5 py-1 rounded-md bg-[#282934] text-[#ffb4ab] text-xs font-bold border border-[#ffb4ab]/30">
-                  {topMatch.ageRating}
-                </span>
-                <span className="px-2.5 py-1 rounded-md bg-[#a078ff]/20 text-primary text-xs font-bold">
-                  {topMatch.qualityBadge}
-                </span>
+                {topMatch.releaseYear > 0 && <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-xs font-bold">{topMatch.releaseYear}</span>}
+                {topMatch.mediaType === 'tv'
+                  ? topMatch.numberOfSeasons && <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-xs font-bold">{topMatch.numberOfSeasons} temporadas</span>
+                  : topMatch.durationMinutes > 0 && <span className="px-2.5 py-1 rounded-md bg-white/10 text-white text-xs font-bold">{topMatch.durationMinutes} min</span>}
+                {topMatch.ageRating && <span className="px-2.5 py-1 rounded-md bg-[#282934] text-[#ffb4ab] text-xs font-bold border border-[#ffb4ab]/30">{topMatch.ageRating}</span>}
+                {topMatch.metrics.tmdb > 0 && <span className="px-2.5 py-1 rounded-md bg-[#a078ff]/20 text-primary text-xs font-bold">TMDB {topMatch.metrics.tmdb.toFixed(1)}/10</span>}
               </div>
 
               {/* Title */}
@@ -113,7 +125,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
                 {topMatch.title}
               </h2>
               <p className="text-xs text-primary font-semibold uppercase tracking-wider mb-4">
-                Direção: {topMatch.director} • {topMatch.genres.join(' • ')}
+                {[topMatch.director ? `Direção: ${topMatch.director}` : '', topMatch.genres.join(' • ')].filter(Boolean).join(' • ')}
               </p>
 
               {/* Synopsis */}
@@ -130,29 +142,14 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
                 <p className="text-xs text-[#e2e1f0] leading-relaxed">
                   {topMatch.aiMatchReason}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-white/5 text-[11px] text-[#cbc3d7]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#4edea3]">✓</span>
-                    <span>Duração: 88 min (atinge sua meta)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#4edea3]">✓</span>
-                    <span>IMDb 8.4 • Metacritic 86</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#4edea3]">✓</span>
-                    <span>Disponível no seu plano Netflix 4K</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#4edea3]">✓</span>
-                    <span>Reviravolta sem clichês</span>
-                  </div>
-                </div>
+                {topMatch.matchHighlights.length > 0 && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-white/5 text-[11px] text-[#cbc3d7]">
+                  {topMatch.matchHighlights.map((highlight) => <div key={highlight} className="flex items-start gap-1.5"><span className="text-[#4edea3]">✓</span><span>{highlight}</span></div>)}
+                </div>}
               </div>
 
               {/* Where to Watch Pills */}
               <div className="space-y-2">
-                <span className="text-xs font-semibold text-[#958ea0]">Onde Assistir Agora:</span>
+                <span className="text-xs font-semibold text-[#958ea0]">Disponibilidade informada pelo TMDB:</span>
                 <div className="flex flex-wrap items-center gap-2.5">
                   {topMatch.streamings.map((st, i) => (
                     <div
@@ -164,6 +161,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
                       <span className="text-[10px] text-[#958ea0] font-normal">({st.quality})</span>
                     </div>
                   ))}
+                  {topMatch.streamings.length === 0 && <span className="text-xs text-[#958ea0]">Não foi possível confirmar opções de acesso.</span>}
                 </div>
               </div>
             </div>
@@ -175,7 +173,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
                 className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#a078ff] to-[#6d3bd7] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-[0_0_24px_rgba(160,120,255,0.45)] hover:scale-[1.02] active:scale-[0.99] transition-all cursor-pointer"
               >
                 <span className="material-symbols-outlined text-base">play_arrow</span>
-                <span>Assistir na Netflix</span>
+                <span>Ver detalhes e opções de acesso</span>
               </button>
 
               <button
@@ -219,7 +217,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-white/5">
         <div>
           <h3 className="text-xl font-bold text-white">Outras Fortes Correspondências</h3>
-          <p className="text-xs text-[#958ea0]">Títulos que também pontuaram alto no seu teste vetorial</p>
+          <p className="text-xs text-[#958ea0]">Outras opções entre as recomendações personalizadas</p>
         </div>
 
         {/* Filters */}
@@ -248,7 +246,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
             className="bg-[#1e1f29] text-xs text-[#cbc3d7] border border-white/10 rounded-xl px-3 py-2 outline-none cursor-pointer"
           >
             <option value="match">Maior Afinidade</option>
-            <option value="rating">Nota IMDb</option>
+            <option value="rating">Nota TMDB</option>
             <option value="duration">Menor Duração</option>
             <option value="year">Mais Recente</option>
           </select>
@@ -279,7 +277,9 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({
 
                 <div className="absolute bottom-3 left-3 flex items-center gap-2">
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-black/70 text-white">
-                    {movie.durationMinutes} min
+                    {movie.mediaType === 'tv'
+                      ? (movie.numberOfSeasons ? `${movie.numberOfSeasons} temporadas` : 'Série')
+                      : (movie.durationMinutes ? `${movie.durationMinutes} min` : 'Duração não informada')}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary-container/40 text-primary">
                     {movie.genres[0]}

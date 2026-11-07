@@ -16,12 +16,13 @@ export const StreamingsModal: React.FC<StreamingsModalProps> = ({
   if (!isOpen) return null;
 
   const streamingsList = [
-    { name: 'Netflix', tier: 'Plano Premium 4K Ultra HD', catalogCount: '4.820 filmes e séries', color: '#E50914' },
-    { name: 'Max', tier: 'Plano Platinum 4K', catalogCount: '3.150 filmes e séries', color: '#002BE7' },
-    { name: 'Prime Video', tier: 'Incluso no Prime', catalogCount: '5.200 filmes e séries', color: '#00A8E1' },
-    { name: 'Apple TV', tier: 'Apple TV+ e Catálogo Aluguel', catalogCount: '890 produções originais', color: '#888888' },
-    { name: 'Disney+', tier: 'Plano Padrão com Star+', catalogCount: '2.640 filmes e séries', color: '#113CCF' },
-    { name: 'Paramount+', tier: 'Incluso no pacote', catalogCount: '1.400 filmes e séries', color: '#0064FF' },
+    { name: 'Netflix', color: '#E50914' },
+    { name: 'Max', color: '#002BE7' },
+    { name: 'Prime Video', color: '#00A8E1' },
+    { name: 'Apple TV+', color: '#888888' },
+    { name: 'Disney+', color: '#113CCF' },
+    { name: 'Paramount+', color: '#0064FF' },
+    { name: 'Globoplay', color: '#FB0B15' },
   ];
 
   return (
@@ -67,9 +68,13 @@ export const StreamingsModal: React.FC<StreamingsModalProps> = ({
                   ></div>
                   <div>
                     <h4 className="text-sm font-bold text-white">{st.name}</h4>
-                    <p className="text-[11px] text-[#958ea0]">{st.tier} • {st.catalogCount}</p>
+                    <p className="text-[11px] text-[#958ea0]">Use para priorizar títulos disponíveis neste serviço</p>
                   </div>
                 </div>
+
+                <p className="text-[11px] text-[#958ea0] mb-4">
+                  A seleção representa suas assinaturas; a disponibilidade é consultada para cada título via TMDB e pode mudar.
+                </p>
 
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ASSETS } from '../data/assets';
 
-export type ScreenType = 'home' | 'chat' | 'neural' | 'matches' | 'detail' | 'watchlist' | 'drive';
+export type ScreenType = 'home' | 'chat' | 'neural' | 'matches' | 'detail' | 'watchlist' | 'preferences' | 'drive';
 
 interface NavbarProps {
   currentScreen: ScreenType;
@@ -28,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'neural', label: 'Processamento Neural', icon: 'neurology' },
     { id: 'matches', label: 'Recomendações', icon: 'auto_awesome' },
     { id: 'watchlist', label: `Minha Lista ${watchlistCount > 0 ? `(${watchlistCount})` : ''}`, icon: 'bookmark' },
+    { id: 'preferences', label: 'Preferências', icon: 'tune' },
     { id: 'drive', label: 'Google Drive', icon: 'cloud' },
   ];
 

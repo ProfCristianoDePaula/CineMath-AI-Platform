@@ -1,28 +1,58 @@
-import { tmdbService, StandardizedMovie } from './tmdb.service';
-import { geminiService } from './gemini.service';
 import { db } from '../db/database';
+import { geminiService } from './gemini.service';
+import {
+  containsRestrictedContent,
+  getYearRange,
+  isFamilyFriendly,
+  normalize,
+  scoreCompatibility,
+} from './recommendation-scoring';
+import { StandardizedMovie, tmdbService } from './tmdb.service';
+
+export { containsRestrictedContent, isFamilyFriendly, scoreCompatibility } from './recommendation-scoring';
+
+const GENRE_IDS: Record<string, number> = {
+  acao: 28,
+  aventura: 12,
+  animacao: 16,
+  comedia: 35,
+  crime: 80,
+  documentario: 99,
+  drama: 18,
+  familia: 10751,
+  fantasia: 14,
+  historia: 36,
+  terror: 27,
+  musica: 10402,
+  misterio: 9648,
+  romance: 10749,
+  'ficcao cientifica': 878,
+  suspense: 53,
+  guerra: 10752,
+  faroeste: 37,
+};
 
 export interface RecommendationRequest {
   userId?: string;
   userPrompt?: string;
+  contentType?: 'movie' | 'tv' | 'all';
+  mood?: string;
   preferredGenres?: string[];
   rejectedGenres?: string[];
   maxDurationMinutes?: number;
   activeStreamings?: string[];
   viewingContext?: string;
   preferredYearRange?: string;
-  customWeights?: {
-    tension?: number;
-    complexity?: number;
-    visualAesthetic?: number;
-    pacing?: number;
-    emotionalDepth?: number;
-  };
+  excludedTitles?: string[];
+  contentRestrictions?: string[];
+  familyFriendly?: boolean;
+  preferredDuration?: 'any' | 'short' | 'standard' | 'epic';
+  minDurationMinutes?: number;
 }
 
 export interface RecommendationResult {
-  topMatch: StandardizedMovie;
-  recommendations: StandardizedMovie[]; // exactly top 3
+  topMatch: StandardizedMovie | null;
+  recommendations: StandardizedMovie[];
   secondaryCandidates: StandardizedMovie[];
   metadata: {
     totalEvaluated: number;
@@ -30,124 +60,147 @@ export interface RecommendationResult {
       streamings: string[];
       genres: string[];
       maxDuration?: number;
+      region: 'BR';
     };
     algorithmVersion: string;
     tmdbAttribution: string;
+    shortfall: number;
+    message?: string;
   };
 }
 
 export class RecommendationService {
-  async getRecommendations(req: RecommendationRequest): Promise<RecommendationResult> {
-    const userId = req.userId || 'user_default';
-    const activeStreamings = req.activeStreamings || ['Netflix', 'Max', 'Prime Video', 'Apple TV'];
-    const preferredGenres = req.preferredGenres || ['Suspense', 'Mistério'];
-    const maxDuration = req.maxDurationMinutes;
-
-    // Step 1 & 2 & 3: Query TMDB Catalog
-    const candidates = await tmdbService.getFeaturedCatalog();
-
-    // Step 4: Exclude already watched or dismissed from viewing history
-    const history = db.getHistory(userId);
-    const watchedIds = new Set(
-      history.filter((h) => h.interactionType === 'watched' || h.interactionType === 'dismissed').map((h) => h.tmdbId)
-    );
-
-    // Step 5 & 6 & 7 & 8: Compute mathematical compatibility scores
-    const scoredCandidates = candidates
-      .filter((movie) => !watchedIds.has(movie.tmdbId))
-      .map((movie) => {
-        let score = 0;
-
-        // 1. Genre correspondence (30%)
-        const genreMatches = movie.genres.filter((g) =>
-          preferredGenres.some((pg) => pg.toLowerCase() === g.toLowerCase())
-        ).length;
-        const genreScore = genreMatches > 0 ? Math.min(30, 20 + genreMatches * 5) : 10;
-        score += genreScore;
-
-        // 2. Streaming availability in Brazil (25%)
-        const hasActiveStreaming = movie.streamings.some(
-          (s) => s.type === 'included' && activeStreamings.some((as) => as.toLowerCase() === s.provider.toLowerCase())
-        );
-        const hasRentOrOther = movie.streamings.length > 0;
-        const streamingScore = hasActiveStreaming ? 25 : hasRentOrOther ? 15 : 5;
-        score += streamingScore;
-
-        // 3. Duration match (15%)
-        let durationScore = 15;
-        if (maxDuration && movie.durationMinutes > maxDuration) {
-          const over = movie.durationMinutes - maxDuration;
-          durationScore = Math.max(5, 15 - Math.floor(over / 10) * 3);
-        }
-        score += durationScore;
-
-        // 4. Critical rating & popularity (20%)
-        const rating = movie.metrics.imdb || 7.5;
-        const ratingScore = Math.min(20, Math.round((rating / 10) * 20));
-        score += ratingScore;
-
-        // 5. Custom vector weights if provided (10%)
-        let vectorScore = 10;
-        if (req.customWeights) {
-          const w = req.customWeights;
-          const userVectorAvg =
-            ((w.tension || 50) + (w.complexity || 50) + (w.visualAesthetic || 50) + (w.pacing || 50) + (w.emotionalDepth || 50)) / 5;
-          const movieVectorAvg =
-            (movie.radarScores.tension +
-              movie.radarScores.complexity +
-              movie.radarScores.visualAesthetic +
-              movie.radarScores.pacing +
-              movie.radarScores.emotionalDepth) / 5;
-          const diff = Math.abs(userVectorAvg - movieVectorAvg);
-          vectorScore = Math.max(2, Math.round(10 - diff / 10));
-        }
-        score += vectorScore;
-
-        // Normalize between 78% and 99%
-        const finalPercentage = Math.min(99, Math.max(78, score));
-
-        return {
-          ...movie,
-          matchScore: finalPercentage,
-        };
-      })
-      .sort((a, b) => b.matchScore - a.matchScore);
-
-    // Step 9: Select exactly the top 3 best matching titles
-    const topThree = scoredCandidates.slice(0, 3);
-    const secondary = scoredCandidates.slice(3);
-
-    // Step 10: Call Gemini to generate personalized justifications
-    const userPrompt = req.userPrompt || `Gosto de ${preferredGenres.join(', ')} com alta tensão.`;
-    const justifications = await geminiService.generateJustifications({
-      movies: topThree,
-      userPrompt,
+  async getRecommendations(request: RecommendationRequest): Promise<RecommendationResult> {
+    const userId = request.userId || 'anonymous';
+    const savedPreferences = db.getPreferences(userId);
+    const unique = (values: string[]) => Array.from(new Set(values));
+    const durationPreference = request.maxDurationMinutes !== undefined
+      ? 'any'
+      : request.preferredDuration || savedPreferences.preferredDuration;
+    const durationBounds = {
+      any: { min: undefined, max: undefined },
+      short: { min: undefined, max: 90 },
+      standard: { min: 90, max: 120 },
+      epic: { min: 121, max: undefined },
+    }[durationPreference];
+    const effectiveRequest: RecommendationRequest = {
+      ...request,
+      userId,
+      contentType: request.contentType && request.contentType !== 'all'
+        ? request.contentType
+        : savedPreferences.preferredContentType,
+      preferredGenres: unique([...savedPreferences.favoriteGenres, ...(request.preferredGenres || [])]),
+      rejectedGenres: unique([...savedPreferences.rejectedGenres, ...(request.rejectedGenres || [])]),
+      activeStreamings: request.activeStreamings?.length
+        ? request.activeStreamings
+        : savedPreferences.streamingProviders,
+      preferredYearRange: request.preferredYearRange || savedPreferences.preferredYearRange,
+      contentRestrictions: unique([...savedPreferences.contentRestrictions, ...(request.contentRestrictions || [])]),
+      familyFriendly: request.familyFriendly === true || savedPreferences.familyFriendly,
+      minDurationMinutes: durationBounds.min,
+      maxDurationMinutes: request.maxDurationMinutes ?? durationBounds.max,
+    };
+    const languageCode = savedPreferences.preferredLanguage === 'any'
+      ? undefined
+      : savedPreferences.preferredLanguage.toLowerCase().startsWith('en')
+        ? 'en'
+        : savedPreferences.preferredLanguage.toLowerCase().startsWith('es') ? 'es' : 'pt';
+    const activeStreamings = effectiveRequest.activeStreamings || [];
+    const preferredGenres = effectiveRequest.preferredGenres || [];
+    const genreIds = Array.from(new Set(preferredGenres
+      .map((genre) => GENRE_IDS[normalize(genre)])
+      .filter((id): id is number => id !== undefined)));
+    const discovered = await tmdbService.discoverTitles({
+      mediaType: effectiveRequest.contentType || 'all',
+      genreIds,
+      minDurationMinutes: effectiveRequest.minDurationMinutes,
+      maxDurationMinutes: effectiveRequest.maxDurationMinutes,
+      originalLanguage: languageCode,
+      preferredYear: (() => {
+        const range = getYearRange(effectiveRequest.preferredYearRange);
+        return range && range.min === range.max ? range.min : undefined;
+      })(),
     });
 
-    for (const movie of topThree) {
-      if (justifications[movie.tmdbId]) {
-        movie.aiMatchReason = justifications[movie.tmdbId];
+    const history = db.getHistory(userId);
+    const excludedIds = new Set(
+      history.filter((entry) => entry.interactionType === 'watched' || entry.interactionType === 'dismissed')
+        .map((entry) => `${entry.mediaType}:${entry.tmdbId}`),
+    );
+    const excludedTitles = (effectiveRequest.excludedTitles || []).map(normalize);
+    const genreFiltered = discovered.filter((movie) =>
+      !excludedIds.has(`${movie.mediaType}:${movie.tmdbId}`) &&
+      !excludedTitles.includes(normalize(movie.title)) &&
+      !movie.genres.some((genre) =>
+        (effectiveRequest.rejectedGenres || [])
+          .some((rejected) => normalize(genre).includes(normalize(rejected))),
+      ),
+    );
+
+    const withProviders = tmdbService.filterByProviders(genreFiltered, activeStreamings);
+    const details = await Promise.all(withProviders.slice(0, 20).map((movie) =>
+      tmdbService.getTitleDetails(movie.tmdbId, movie.mediaType),
+    ));
+    const scored = details
+      .filter((movie): movie is StandardizedMovie => movie !== null)
+      .filter((movie) => !effectiveRequest.minDurationMinutes || !movie.durationMinutes ||
+        movie.durationMinutes >= effectiveRequest.minDurationMinutes)
+      .filter((movie) => !effectiveRequest.maxDurationMinutes || !movie.durationMinutes ||
+        movie.durationMinutes <= effectiveRequest.maxDurationMinutes)
+      .filter((movie) => {
+        const range = getYearRange(effectiveRequest.preferredYearRange);
+        return !range || (movie.releaseYear >= range.min && movie.releaseYear <= range.max);
+      })
+      .filter((movie) => {
+        if (!effectiveRequest.familyFriendly) return true;
+        return isFamilyFriendly(movie);
+      })
+      .filter((movie) => !containsRestrictedContent(movie, effectiveRequest.contentRestrictions || []))
+      .map((movie) => ({
+        ...movie,
+        matchScore: scoreCompatibility(movie, effectiveRequest),
+      }))
+      .filter((movie) => movie.matchScore > 0)
+      .sort((left, right) => right.matchScore - left.matchScore);
+
+    const recommendations = scored.slice(0, 3);
+    if (recommendations.length) {
+      const justifications = await geminiService.generateJustifications({
+        movies: recommendations,
+        userPrompt: effectiveRequest.userPrompt || 'Encontre títulos que combinem com minhas preferências.',
+      });
+      for (const movie of recommendations) {
+        const justification = justifications[movie.tmdbId];
+        if (!justification) {
+          throw Object.assign(new Error('A IA não retornou justificativa para uma das recomendações.'), { status: 502 });
+        }
+        movie.aiMatchReason = justification;
       }
     }
 
+    const shortfall = Math.max(0, 3 - recommendations.length);
     return {
-      topMatch: topThree[0] || candidates[0],
-      recommendations: topThree,
-      secondaryCandidates: secondary,
+      topMatch: recommendations[0] || null,
+      recommendations,
+      secondaryCandidates: scored.slice(3),
       metadata: {
-        totalEvaluated: candidates.length,
+        totalEvaluated: discovered.length,
         appliedFilters: {
           streamings: activeStreamings,
           genres: preferredGenres,
-          maxDuration,
+          maxDuration: effectiveRequest.maxDurationMinutes,
+          region: 'BR',
         },
-        algorithmVersion: 'CineMatch Neural v4.2',
+        algorithmVersion: 'CineMatch 1.0',
         tmdbAttribution: 'This product uses the TMDB API but is not endorsed or certified by TMDB.',
+        shortfall,
+        message: shortfall
+          ? `Encontramos ${recommendations.length} de 3 opções com disponibilidade confirmada. Tente ampliar os filtros ou aceitar aluguel e compra.`
+          : undefined,
       },
     };
   }
 
-  // Calculate Couple / Joint Match between 2 users/tastes
   async calculateCoupleMatch(params: {
     user1Tastes: string[];
     user2Taste: 'drama' | 'scifi' | 'comedy' | 'thriller';
@@ -156,35 +209,24 @@ export class RecommendationService {
     jointScore: number;
     explanation: string;
   }> {
-    const candidates = await tmdbService.getFeaturedCatalog();
-
-    // Map partner taste
-    const partnerKeywords: Record<string, string[]> = {
-      drama: ['Drama', 'Atuações', 'Profundo'],
-      scifi: ['Ficção Científica', 'Mistério', 'Futurista'],
-      comedy: ['Comédia', 'Ágil', 'Leve'],
-      thriller: ['Suspense', 'Tensão', 'Crime'],
+    const secondTaste: Record<typeof params.user2Taste, string> = {
+      drama: 'Drama',
+      scifi: 'Ficção Científica',
+      comedy: 'Comédia',
+      thriller: 'Suspense',
     };
-
-    const targetGenres = partnerKeywords[params.user2Taste] || ['Drama'];
-
-    // Find movie that balances both
-    const sorted = [...candidates].sort((a, b) => {
-      const matchA = a.genres.filter((g) => targetGenres.some((tg) => g.includes(tg))).length;
-      const matchB = b.genres.filter((g) => targetGenres.some((tg) => g.includes(tg))).length;
-      return matchB - matchA;
+    const result = await this.getRecommendations({
+      preferredGenres: [...params.user1Tastes, secondTaste[params.user2Taste]],
+      activeStreamings: [],
     });
-
-    const best = sorted[0] || candidates[0];
-    const jointScore = Math.min(97, Math.max(89, Math.round(best.matchScore * 0.96)));
-
+    const topMatch = result.topMatch;
+    if (!topMatch) {
+      throw Object.assign(new Error('Não há recomendações com disponibilidade confirmada para estas preferências.'), { status: 404 });
+    }
     return {
-      topMatch: {
-        ...best,
-        matchScore: jointScore,
-      },
-      jointScore,
-      explanation: `Equilibra com maestria a intensidade e tensão que você aprecia com a riqueza temática e narrativa envolvente preferida pela outra pessoa.`,
+      topMatch,
+      jointScore: topMatch.matchScore,
+      explanation: topMatch.aiMatchReason,
     };
   }
 }

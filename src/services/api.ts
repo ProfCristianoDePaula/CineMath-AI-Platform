@@ -1,22 +1,25 @@
-import { Movie } from '../types';
+import { Movie, UserPreferences, WatchlistEntry } from '../types';
 
 export interface ConversationResponse {
   replyText: string;
   isReadyForRecommendations: boolean;
   suggestedChips?: string[];
   extractedFilters: {
+    contentType?: 'movie' | 'tv' | 'all';
     mood?: string;
     genres?: string[];
     rejectedGenres?: string[];
     maxDurationMinutes?: number;
+    preferredYearRange?: string;
     viewingContext?: string;
     streamings?: string[];
     keywords?: string[];
+    excludedTitles?: string[];
   };
 }
 
 export interface RecommendationResponse {
-  topMatch: Movie;
+  topMatch: Movie | null;
   recommendations: Movie[];
   secondaryCandidates: Movie[];
   metadata: {
@@ -25,9 +28,12 @@ export interface RecommendationResponse {
       streamings: string[];
       genres: string[];
       maxDuration?: number;
+      region: 'BR';
     };
     algorithmVersion: string;
     tmdbAttribution: string;
+    shortfall: number;
+    message?: string;
   };
 }
 
@@ -37,205 +43,147 @@ export interface CoupleMatchResponse {
   explanation: string;
 }
 
+export interface ViewingHistoryEntry {
+  id: string;
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  interactionType: string;
+  createdAt: string;
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function getAnonymousUserId(): string {
+  const key = 'cinematch-anonymous-user';
+  let userId = localStorage.getItem(key);
+  if (!userId) {
+    userId = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, userId);
+  }
+  return userId;
+}
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  let body: { success?: boolean; data?: T; error?: string };
+  try {
+    body = await response.json() as typeof body;
+  } catch {
+    throw new ApiError('O servidor retornou uma resposta inválida.', response.status);
+  }
+  if (!response.ok || body.success === false) {
+    throw new ApiError(body.error || 'Não foi possível concluir a solicitação.', response.status);
+  }
+  return body.data as T;
+}
+
+function jsonBody(value: unknown): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+  };
+}
+
+const userId = () => getAnonymousUserId();
+
 export const api = {
-  // 1. Get Featured Real TMDB Catalog
-  async getFeaturedCatalog(): Promise<Movie[]> {
-    try {
-      const resp = await fetch('/api/movies/featured');
-      if (!resp.ok) throw new Error('Falha ao carregar catálogo');
-      const json = await resp.json();
-      return json.data || [];
-    } catch (err) {
-      console.error('Error fetching featured catalog:', err);
-      return [];
-    }
+  getFeaturedCatalog: () => request<Movie[]>('/api/movies/featured'),
+
+  searchMovies: (query: string) =>
+    request<Movie[]>(`/api/movies/search?q=${encodeURIComponent(query)}`),
+
+  searchTv: (query: string) =>
+    request<Movie[]>(`/api/tv/search?q=${encodeURIComponent(query)}`),
+
+  getMovieDetails: (id: string, mediaType: 'movie' | 'tv' = 'movie', trackView = true) => {
+    const tmdbId = id.replace(/^tmdb-/, '');
+    const resource = mediaType === 'movie' ? 'movies' : 'tv';
+    const params = new URLSearchParams({ userId: userId(), track: String(trackView) });
+    return request<Movie>(`/api/${resource}/${encodeURIComponent(tmdbId)}?${params}`);
   },
 
-  // 2. Search Movies in TMDB
-  async searchMovies(query: string): Promise<Movie[]> {
-    try {
-      const resp = await fetch(`/api/movies/search?q=${encodeURIComponent(query)}`);
-      if (!resp.ok) throw new Error('Falha na busca');
-      const json = await resp.json();
-      return json.data || [];
-    } catch (err) {
-      console.error('Error searching movies:', err);
-      return [];
-    }
-  },
-
-  // 3. Get Movie Details by ID
-  async getMovieDetails(id: string): Promise<Movie | null> {
-    try {
-      const resp = await fetch(`/api/movies/${id}`);
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      return json.data || null;
-    } catch (err) {
-      console.error('Error fetching movie details:', err);
-      return null;
-    }
-  },
-
-  // 4. Send Chat message to Gemini AI
-  async sendConversationMessage(params: {
+  sendConversationMessage: (params: {
     messageHistory: Array<{ sender: 'ai' | 'user'; text: string }>;
     latestMessage: string;
     activeStreamings: string[];
     sessionId?: string;
-  }): Promise<ConversationResponse | null> {
-    try {
-      const resp = await fetch('/api/ai/conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
-      if (!resp.ok) throw new Error('Erro na conversa com a IA');
-      const json = await resp.json();
-      return json.data || null;
-    } catch (err) {
-      console.error('Error in AI conversation:', err);
-      return null;
-    }
-  },
+  }) => request<ConversationResponse>('/api/ai/conversation', jsonBody({
+    ...params,
+    sessionId: params.sessionId || userId(),
+  })),
 
-  // 5. Compute AI Recommendations
-  async getRecommendations(params: {
+  getRecommendations: (params: {
     userId?: string;
     userPrompt?: string;
+    contentType?: 'movie' | 'tv' | 'all';
+    preferredDuration?: UserPreferences['preferredDuration'];
+    mood?: string;
     preferredGenres?: string[];
     rejectedGenres?: string[];
     maxDurationMinutes?: number;
     activeStreamings?: string[];
-    customWeights?: {
-      tension?: number;
-      complexity?: number;
-      visualAesthetic?: number;
-      pacing?: number;
-      emotionalDepth?: number;
-    };
-  }): Promise<RecommendationResponse | null> {
-    try {
-      const resp = await fetch('/api/ai/recommendations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
-      if (!resp.ok) throw new Error('Erro ao calcular recomendações');
-      const json = await resp.json();
-      return json.data || null;
-    } catch (err) {
-      console.error('Error calculating recommendations:', err);
-      return null;
-    }
-  },
+    viewingContext?: string;
+    preferredYearRange?: string;
+    excludedTitles?: string[];
+    contentRestrictions?: string[];
+    familyFriendly?: boolean;
+  }) => request<RecommendationResponse>('/api/ai/recommendations', jsonBody({
+    ...params,
+    mood: params.mood?.slice(0, 160),
+    userId: params.userId || userId(),
+  })),
 
-  // 6. Compute Couple Match
-  async calculateCoupleMatch(params: {
+  calculateCoupleMatch: (params: {
     user1Tastes: string[];
     user2Taste: 'drama' | 'scifi' | 'comedy' | 'thriller';
-  }): Promise<CoupleMatchResponse | null> {
-    try {
-      const resp = await fetch('/api/ai/couple-match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
-      if (!resp.ok) throw new Error('Erro no cálculo conjunto');
-      const json = await resp.json();
-      return json.data || null;
-    } catch (err) {
-      console.error('Error in couple match:', err);
-      return null;
-    }
-  },
+  }) => request<CoupleMatchResponse>('/api/ai/couple-match', jsonBody({
+    ...params,
+    userId: userId(),
+  })),
 
-  // 7. Watchlist Operations
-  async getWatchlist(userId = 'user_default'): Promise<any[]> {
-    try {
-      const resp = await fetch(`/api/watchlist?userId=${userId}`);
-      if (!resp.ok) return [];
-      const json = await resp.json();
-      return json.data || [];
-    } catch (err) {
-      console.error('Error fetching watchlist:', err);
-      return [];
-    }
-  },
+  getWatchlist: (ownerId = userId()) =>
+    request<WatchlistEntry[]>(`/api/watchlist?userId=${encodeURIComponent(ownerId)}`),
 
-  async addToWatchlist(movie: Movie, userId = 'user_default'): Promise<boolean> {
-    try {
-      const resp = await fetch('/api/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          movieId: movie.id,
-          tmdbId: (movie as any).tmdbId || 550,
-          title: movie.title,
-          posterPath: movie.posterUrl,
-          releaseYear: movie.releaseYear,
-          durationMinutes: movie.durationMinutes,
-          genres: movie.genres,
-        }),
-      });
-      return resp.ok;
-    } catch (err) {
-      console.error('Error adding to watchlist:', err);
-      return false;
-    }
-  },
+  getHistory: (ownerId = userId()) =>
+    request<ViewingHistoryEntry[]>(`/api/history?userId=${encodeURIComponent(ownerId)}`),
 
-  async removeFromWatchlist(id: string, userId = 'user_default'): Promise<boolean> {
-    try {
-      const resp = await fetch(`/api/watchlist/${id}?userId=${userId}`, {
-        method: 'DELETE',
-      });
-      return resp.ok;
-    } catch (err) {
-      console.error('Error removing from watchlist:', err);
-      return false;
-    }
-  },
+  addToWatchlist: (movie: Movie, ownerId = userId()) =>
+    request<WatchlistEntry>('/api/watchlist', jsonBody({
+      userId: ownerId,
+      tmdbId: movie.tmdbId,
+      mediaType: movie.mediaType || 'movie',
+      title: movie.title,
+      posterPath: movie.posterUrl,
+      releaseYear: movie.releaseYear,
+      durationMinutes: movie.durationMinutes,
+      genres: movie.genres,
+    })),
 
-  async toggleWatched(id: string, rating?: number, note?: string, userId = 'user_default'): Promise<boolean> {
-    try {
-      const resp = await fetch(`/api/watchlist/${id}/toggle-watched`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, rating, note }),
-      });
-      return resp.ok;
-    } catch (err) {
-      console.error('Error toggling watched status:', err);
-      return false;
-    }
-  },
+  removeFromWatchlist: (id: string, ownerId = userId()) =>
+    request<boolean>(`/api/watchlist/${encodeURIComponent(id)}?userId=${encodeURIComponent(ownerId)}`, {
+      method: 'DELETE',
+    }),
 
-  // 8. User Preferences
-  async getPreferences(userId = 'user_default'): Promise<any> {
-    try {
-      const resp = await fetch(`/api/preferences?userId=${userId}`);
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      return json.data || null;
-    } catch (err) {
-      console.error('Error fetching preferences:', err);
-      return null;
-    }
-  },
+  toggleWatched: (id: string, rating?: number, note?: string, ownerId = userId()) =>
+    request<WatchlistEntry>(`/api/watchlist/${encodeURIComponent(id)}/toggle-watched`, jsonBody({
+      userId: ownerId,
+      rating,
+      note,
+    })),
 
-  async updatePreferences(updates: Record<string, any>, userId = 'user_default'): Promise<boolean> {
-    try {
-      const resp = await fetch('/api/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, ...updates }),
-      });
-      return resp.ok;
-    } catch (err) {
-      console.error('Error updating preferences:', err);
-      return false;
-    }
-  },
+  getPreferences: (ownerId = userId()) =>
+    request<UserPreferences>(`/api/preferences?userId=${encodeURIComponent(ownerId)}`),
+
+  updatePreferences: (updates: Partial<UserPreferences>, ownerId = userId()) =>
+    request<UserPreferences>('/api/preferences', jsonBody({ userId: ownerId, ...updates })),
 };

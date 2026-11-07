@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Movie } from '../types';
-import { ASSETS } from '../data/assets';
 import { api } from '../services/api';
 
 interface HomeScreenProps {
   movies: Movie[];
+  isLoading: boolean;
+  catalogError: string;
   onSelectMovie: (movie: Movie) => void;
   onStartAiChat: (initialPrompt?: string) => void;
   onSurpriseMe: () => void;
@@ -15,6 +16,8 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   movies,
+  isLoading,
+  catalogError,
   onSelectMovie,
   onStartAiChat,
   onSurpriseMe,
@@ -25,10 +28,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Movie[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.trim().length < 2) {
       setSearchResults([]);
+      setSearchError('');
       setIsSearching(false);
       return;
     }
@@ -38,8 +43,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       try {
         const res = await api.searchMovies(searchQuery.trim());
         setSearchResults(res);
-      } catch (e) {
-        console.error('Search error:', e);
+        setSearchError('');
+      } catch (error) {
+        setSearchError(error instanceof Error ? error.message : 'Falha ao pesquisar no TMDB.');
       } finally {
         setIsSearching(false);
       }
@@ -162,19 +168,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                         <h4 className="text-sm font-bold text-white group-hover:text-primary transition-colors truncate">
                           {m.title}
                         </h4>
-                        <span className="text-[10px] text-[#958ea0] shrink-0">{m.releaseYear}</span>
+                        <span className="text-[10px] text-[#958ea0] shrink-0">{m.releaseYear || 'Ano não informado'}</span>
                       </div>
                       <p className="text-[11px] text-[#958ea0] truncate">
-                        {m.genres.join(' • ')} • {m.durationMinutes} min
+                        {[m.genres.join(' • '), m.mediaType === 'tv'
+                          ? (m.numberOfSeasons ? `${m.numberOfSeasons} temporadas` : '')
+                          : (m.durationMinutes ? `${m.durationMinutes} min` : '')].filter(Boolean).join(' • ')}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-[#4edea3] font-bold">
-                          ★ {m.metrics.imdb || '8.0'}
+                          {m.metrics.tmdb > 0 ? `TMDB ${m.metrics.tmdb.toFixed(1)}/10` : 'Nota não informada'}
                         </span>
                         <span className="text-[10px] text-[#cbc3d7]">
-                          {m.streamings[0]?.provider || 'Streaming BR'}
+                          {m.streamings[0]?.provider || 'Disponibilidade não confirmada'}
                         </span>
                       </div>
+                      {searchError && <p role="alert" className="px-3 py-2 text-xs text-[#ffb4ab]">{searchError}</p>}
                     </div>
                   </div>
                 ))}
@@ -186,7 +195,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {/* Trust Indicator */}
         <div className="flex items-center gap-2 text-xs text-[#958ea0]">
           <span className="material-symbols-outlined text-[#4edea3] text-sm">verified</span>
-          <span>Conectado a mais de 8 plataformas de streaming • Recomendações 100% personalizadas</span>
+          <span>Catálogo TMDB • Disponibilidade consultada para o Brasil</span>
         </div>
       </section>
 
@@ -222,13 +231,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 Algoritmo de Compatibilidade
               </div>
               <h2 className="text-2xl sm:text-3xl font-bold text-[#e2e1f0] tracking-tight">
-                Curadoria personalizada em tempo real
+                Títulos em destaque no TMDB
               </h2>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-xs text-[#cbc3d7] bg-[#1e1f29] px-3 py-1.5 rounded-full border border-white/5">
                 <span className="w-2 h-2 rounded-full bg-[#4edea3]"></span>
-                Taxa de acerto média: <strong>94.6%</strong>
+                Dados de catálogo e avaliações do TMDB
               </div>
               <button
                 onClick={onOpenNeural}
@@ -241,9 +250,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           {/* 3 Posters Grid */}
+          {isLoading && (
+            <div className="rounded-2xl border border-white/10 bg-[#1e1f29]/70 p-8 text-center text-sm text-[#cbc3d7]">
+              Carregando títulos do catálogo TMDB...
+            </div>
+          )}
+          {!isLoading && catalogError && (
+            <div role="alert" className="rounded-2xl border border-[#ffb4ab]/30 bg-[#ffb4ab]/10 p-8 text-center text-sm text-[#ffb4ab]">
+              {catalogError}
+            </div>
+          )}
+          {!isLoading && !catalogError && featuredMovies.length === 0 && (
+            <div className="rounded-2xl border border-white/10 bg-[#1e1f29]/70 p-8 text-center text-sm text-[#cbc3d7]">
+              O catálogo não retornou títulos. Tente novamente mais tarde.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch">
             {featuredMovies.map((movie, idx) => {
-              const isCenter = idx === 1; // "Sussurros no Labirinto" in center
+              const isCenter = idx === 1;
               const saved = isWatchlisted(movie.id);
 
               return (
@@ -257,28 +281,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 >
                   {/* Poster Image Container */}
                   <div className="relative aspect-[3/4] w-full overflow-hidden bg-black/40">
-                    <img
+                    {movie.posterUrl ? <img
                       src={movie.posterUrl}
                       alt={movie.title}
                       className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-                    />
+                      loading="lazy"
+                      decoding="async"
+                    /> : <div className="w-full h-full flex items-center justify-center text-xs text-[#958ea0]">Pôster indisponível</div>}
 
                     {/* Gradient Overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#1e1f29] via-transparent to-black/30 pointer-events-none"></div>
 
                     {/* Compatibility Badge Top-Right */}
-                    <div className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10">
+                    {movie.matchScore > 0 && <div className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10">
                       <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
                       <span className="text-xs font-bold text-white tracking-wide">
                         {movie.matchScore}% Match
                       </span>
-                    </div>
+                    </div>}
 
                     {/* Highlight Badge Top-Left if top choice */}
                     {isCenter && (
                       <div className="absolute top-3 left-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#a078ff] text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
                         <span className="material-symbols-outlined text-xs">auto_awesome</span>
-                        Top Recomendação
+                        Em destaque
                       </div>
                     )}
 
@@ -306,11 +332,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     <div>
                       {/* Genres and Year */}
                       <div className="flex items-center gap-2 text-xs text-[#958ea0] mb-1.5">
-                        <span>{movie.releaseYear}</span>
+                        {movie.releaseYear > 0 && <><span>{movie.releaseYear}</span><span>•</span></>}
+                        <span>{movie.mediaType === 'tv'
+                          ? (movie.numberOfSeasons ? `${movie.numberOfSeasons} temporadas` : 'Série')
+                          : (movie.durationMinutes ? `${movie.durationMinutes} min` : '')}</span>
                         <span>•</span>
-                        <span>{movie.durationMinutes} min</span>
-                        <span>•</span>
-                        <span className="text-primary font-medium">{movie.genres[0]}</span>
+                        {movie.genres[0] && <><span>•</span><span className="text-primary font-medium">{movie.genres[0]}</span></>}
                       </div>
 
                       {/* Title */}
@@ -323,7 +350,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
                       {/* AI Snippet */}
                       <p className="text-xs text-[#cbc3d7] line-clamp-2 mb-4 leading-relaxed">
-                        {movie.synopsis}
+                        {movie.synopsis || 'Sinopse não disponibilizada pelo TMDB.'}
                       </p>
 
                       {/* Available Streamings */}
@@ -338,6 +365,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               {st.provider}
                             </span>
                           ))}
+                          {movie.streamings.length === 0 && <span className="text-[10px] text-[#958ea0]">Não confirmada</span>}
                         </div>
                       </div>
                     </div>

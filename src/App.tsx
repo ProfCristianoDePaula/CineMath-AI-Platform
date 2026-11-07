@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Movie } from './types';
-import { MOVIES } from './data/movies';
+import { Movie, UserPreferences } from './types';
 import { ASSETS } from './data/assets';
 import { api } from './services/api';
 import { Navbar, ScreenType } from './components/Navbar';
@@ -14,21 +13,24 @@ import { GoogleDriveScreen } from './components/GoogleDriveScreen';
 import { CoupleMatchModal } from './components/CoupleMatchModal';
 import { TrailerModal } from './components/TrailerModal';
 import { StreamingsModal } from './components/StreamingsModal';
+import { PreferencesScreen } from './components/PreferencesScreen';
 import { User } from 'firebase/auth';
 import { initAuth } from './services/auth';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
-  const [movies, setMovies] = useState<Movie[]>(MOVIES);
-  const [selectedMovie, setSelectedMovie] = useState<Movie>(MOVIES[0]);
-  const [watchlistIds, setWatchlistIds] = useState<string[]>(['sussurros-no-labirinto', 'o-horizonte-oculto']);
-  const [watchedIds, setWatchedIds] = useState<string[]>(['o-limiar-do-silencio']);
-  const [connectedStreamings, setConnectedStreamings] = useState<string[]>([
-    'Netflix',
-    'Max',
-    'Prime Video',
-    'Apple TV',
-  ]);
+  const [movies, setMovies] = useState<Movie[]>([]);
+  const [recommendations, setRecommendations] = useState<Movie[]>([]);
+  const [recommendationNotice, setRecommendationNotice] = useState('');
+  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [watchlistIds, setWatchlistIds] = useState<string[]>([]);
+  const [watchedIds, setWatchedIds] = useState<string[]>([]);
+  const [connectedStreamings, setConnectedStreamings] = useState<string[]>([]);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+  const [appError, setAppError] = useState('');
+  const [chatInitialPrompt, setChatInitialPrompt] = useState('');
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -57,41 +59,48 @@ export default function App() {
     let isMounted = true;
 
     async function loadInitialData() {
-      try {
-        // 1. Load preferences
-        const prefs = await api.getPreferences();
-        if (isMounted && prefs?.streamingProviders && prefs.streamingProviders.length > 0) {
-          setConnectedStreamings(prefs.streamingProviders);
-        }
-
-        // 2. Load watchlist from persistent database
-        const savedWatchlist = await api.getWatchlist();
-        if (isMounted && savedWatchlist && savedWatchlist.length > 0) {
-          const wIds: string[] = [];
-          const watched: string[] = [];
-          for (const item of savedWatchlist) {
-            const id = item.movieId || (item.tmdbId ? `tmdb-${item.tmdbId}` : item.id);
-            if (id) {
-              wIds.push(id);
-              if (item.watched) watched.push(id);
-            }
-          }
-          if (wIds.length > 0) setWatchlistIds(wIds);
-          if (watched.length > 0) setWatchedIds(watched);
-        }
-
-        // 3. Load live/cached TMDB catalog
-        const catalog = await api.getFeaturedCatalog();
-        if (isMounted && catalog && catalog.length > 0) {
-          // Merge stitch movies with real TMDB catalog so stitch screens remain pixel-perfect
-          const existingIds = new Set(MOVIES.map((m) => m.id));
-          const newTmdbMovies = catalog.filter((m) => !existingIds.has(m.id));
-          const merged = [...MOVIES, ...newTmdbMovies];
-          setMovies(merged);
-        }
-      } catch (err) {
-        console.error('Initial load failed:', err);
+      const [catalogResult, preferencesResult, watchlistResult] = await Promise.allSettled([
+        api.getFeaturedCatalog(),
+        api.getPreferences(),
+        api.getWatchlist(),
+      ]);
+      if (!isMounted) return;
+      if (catalogResult.status === 'fulfilled') {
+        setMovies(catalogResult.value);
+        setCatalogError('');
+      } else {
+        setCatalogError(catalogResult.reason instanceof Error
+          ? catalogResult.reason.message
+          : 'Não foi possível carregar o catálogo TMDB.');
       }
+      if (preferencesResult.status === 'fulfilled') {
+        setPreferences(preferencesResult.value);
+        setConnectedStreamings(preferencesResult.value.streamingProviders);
+      } else {
+        setAppError('Não foi possível carregar suas preferências.');
+      }
+      if (watchlistResult.status === 'fulfilled') {
+        const savedWatchlist = watchlistResult.value;
+        const savedIds = savedWatchlist.map((item) => `tmdb-${item.tmdbId}`);
+        const watched = savedWatchlist.filter((item) => item.watched).map((item) => `tmdb-${item.tmdbId}`);
+        setWatchlistIds(savedIds);
+        setWatchedIds(watched);
+        const savedMovies = await Promise.allSettled(savedWatchlist.map((item) =>
+          api.getMovieDetails(`tmdb-${item.tmdbId}`, item.mediaType, false),
+        ));
+        if (isMounted) {
+          setMovies((current) => {
+            const byId = new Map(current.map((movie) => [movie.id, movie]));
+            for (const result of savedMovies) {
+              if (result.status === 'fulfilled') byId.set(result.value.id, result.value);
+            }
+            return Array.from(byId.values());
+          });
+        }
+      } else {
+        setAppError('Não foi possível carregar sua lista salva.');
+      }
+      if (isMounted) setIsCatalogLoading(false);
     }
 
     loadInitialData();
@@ -110,37 +119,47 @@ export default function App() {
     setCurrentScreen('detail');
   };
 
+  const handleRecommendations = (items: Movie[], notice = '') => {
+    setRecommendations(items);
+    setRecommendationNotice(notice);
+    setMovies((current) => {
+      const byId = new Map(current.map((movie) => [movie.id, movie]));
+      for (const movie of items) byId.set(movie.id, movie);
+      return Array.from(byId.values());
+    });
+  };
+
+  const handleStartAiChat = (initialPrompt = '') => {
+    setChatInitialPrompt(initialPrompt);
+    setCurrentScreen('chat');
+  };
+
   const handleToggleWatchlist = async (movieId: string) => {
     const isSaved = watchlistIds.includes(movieId);
-    // Optimistic UI update
-    setWatchlistIds((prev) =>
-      isSaved ? prev.filter((id) => id !== movieId) : [...prev, movieId]
-    );
-
     try {
       if (isSaved) {
-        await api.removeFromWatchlist(movieId);
+        const removed = await api.removeFromWatchlist(movieId);
+        if (!removed) throw new Error('O título não foi encontrado na sua lista.');
+        setWatchlistIds((prev) => prev.filter((id) => id !== movieId));
       } else {
         const movieToSave = movies.find((m) => m.id === movieId);
-        if (movieToSave) {
-          await api.addToWatchlist(movieToSave);
-        }
+        if (!movieToSave) throw new Error('Não foi possível localizar este título no catálogo.');
+        await api.addToWatchlist(movieToSave);
+        setWatchlistIds((prev) => [...prev, movieId]);
       }
     } catch (err) {
-      console.error('Watchlist sync error:', err);
+      setAppError(err instanceof Error ? err.message : 'Falha ao atualizar sua lista.');
     }
   };
 
   const handleToggleWatched = async (movieId: string) => {
-    // Optimistic UI update
-    setWatchedIds((prev) =>
-      prev.includes(movieId) ? prev.filter((id) => id !== movieId) : [...prev, movieId]
-    );
-
     try {
       await api.toggleWatched(movieId);
+      setWatchedIds((prev) => prev.includes(movieId)
+        ? prev.filter((id) => id !== movieId)
+        : [...prev, movieId]);
     } catch (err) {
-      console.error('Watched toggle error:', err);
+      setAppError(err instanceof Error ? err.message : 'Falha ao atualizar o status assistido.');
     }
   };
 
@@ -149,16 +168,26 @@ export default function App() {
       ? connectedStreamings.filter((s) => s !== name)
       : [...connectedStreamings, name];
 
-    setConnectedStreamings(updated);
-
     try {
-      await api.updatePreferences({ streamingProviders: updated });
+      const saved = await api.updatePreferences({ streamingProviders: updated });
+      setPreferences(saved);
+      setConnectedStreamings(updated);
     } catch (err) {
-      console.error('Failed to sync streaming preferences:', err);
+      setAppError(err instanceof Error ? err.message : 'Falha ao salvar suas plataformas.');
     }
   };
 
+  const handleSavePreferences = async (updates: Partial<UserPreferences>) => {
+    const saved = await api.updatePreferences(updates);
+    setPreferences(saved);
+    setConnectedStreamings(saved.streamingProviders);
+  };
+
   const handleSurpriseMe = () => {
+    if (movies.length === 0) {
+      setAppError(catalogError || 'O catálogo ainda não está disponível.');
+      return;
+    }
     const random = movies[Math.floor(Math.random() * movies.length)];
     handleSelectMovie(random);
   };
@@ -177,11 +206,21 @@ export default function App() {
 
       {/* Main Content Viewport */}
       <main className="flex-1 pt-20">
+        {appError && (
+          <div role="alert" className="mx-auto mt-4 max-w-5xl px-4">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-[#ffb4ab]/30 bg-[#ffb4ab]/10 px-4 py-3 text-sm text-[#ffb4ab]">
+              <span>{appError}</span>
+              <button onClick={() => setAppError('')} aria-label="Fechar aviso" className="hover:text-white">×</button>
+            </div>
+          </div>
+        )}
         {currentScreen === 'home' && (
           <HomeScreen
             movies={movies}
+            isLoading={isCatalogLoading}
+            catalogError={catalogError}
             onSelectMovie={handleSelectMovie}
-            onStartAiChat={() => setCurrentScreen('chat')}
+            onStartAiChat={handleStartAiChat}
             onSurpriseMe={handleSurpriseMe}
             onOpenNeural={() => setCurrentScreen('neural')}
             onToggleWatchlist={handleToggleWatchlist}
@@ -192,6 +231,10 @@ export default function App() {
         {currentScreen === 'chat' && (
           <ChatScreen
             movies={movies}
+            connectedStreamings={connectedStreamings}
+            preferences={preferences}
+            initialPrompt={chatInitialPrompt}
+            onRecommendations={handleRecommendations}
             onSelectMovie={handleSelectMovie}
             onGoToNeural={() => setCurrentScreen('neural')}
             onGoToMatches={() => setCurrentScreen('matches')}
@@ -200,7 +243,8 @@ export default function App() {
 
         {currentScreen === 'neural' && (
           <NeuralScreen
-            movies={movies}
+            movies={recommendations}
+            recommendationNotice={recommendationNotice}
             onSelectMovie={handleSelectMovie}
             onGoToMatches={() => setCurrentScreen('matches')}
           />
@@ -208,7 +252,8 @@ export default function App() {
 
         {currentScreen === 'matches' && (
           <MatchesScreen
-            movies={movies}
+            movies={recommendations}
+            recommendationNotice={recommendationNotice}
             onSelectMovie={handleSelectMovie}
             onGoToChat={() => setCurrentScreen('chat')}
             onOpenCoupleMatch={() => setIsCoupleMatchModalOpen(true)}
@@ -217,7 +262,7 @@ export default function App() {
           />
         )}
 
-        {currentScreen === 'detail' && (
+        {currentScreen === 'detail' && selectedMovie && (
           <DetailScreen
             movie={selectedMovie}
             allMovies={movies}
@@ -242,6 +287,10 @@ export default function App() {
             onToggleWatched={handleToggleWatched}
             onGoToHome={() => setCurrentScreen('home')}
           />
+        )}
+
+        {currentScreen === 'preferences' && (
+          <PreferencesScreen preferences={preferences} onSave={handleSavePreferences} />
         )}
 
         {currentScreen === 'drive' && (
@@ -296,7 +345,7 @@ export default function App() {
             <div>
               <span className="font-bold text-white text-sm">CineMatch AI Platform</span>
               <p className="text-[11px] text-[#958ea0]">
-                Curadoria personalizada em tempo real por processamento neural de linguagem natural.
+                Recomendações personalizadas a partir do catálogo do TMDB e das suas preferências.
               </p>
             </div>
           </div>
@@ -313,6 +362,9 @@ export default function App() {
             </button>
             <button onClick={() => setCurrentScreen('matches')} className="hover:text-white transition-colors cursor-pointer">
               Recomendações
+            </button>
+            <button onClick={() => setCurrentScreen('preferences')} className="hover:text-white transition-colors cursor-pointer">
+              Preferências
             </button>
             <button onClick={() => setIsStreamingsModalOpen(true)} className="hover:text-white transition-colors cursor-pointer">
               Catálogos Ativos

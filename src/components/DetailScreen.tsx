@@ -45,11 +45,11 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
       {/* Cinematic Full Backdrop Header */}
       <div className="relative w-full h-[32rem] sm:h-[38rem] overflow-hidden bg-black">
         {/* Backdrop Image */}
-        <img
+        {movie.backdropUrl && <img
           src={movie.backdropUrl}
           alt={movie.title}
           className="w-full h-full object-cover object-center scale-105 filter brightness-75 contrast-110"
-        />
+        />}
 
         {/* Ambient Overlay Gradients */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#12131d] via-[#12131d]/60 to-black/50"></div>
@@ -85,9 +85,9 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
               <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
               {movie.matchScore}% de Compatibilidade IA
             </span>
-            <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold border border-white/10">
-              IMDb {movie.metrics.imdb} • Rotten Tomatoes {movie.metrics.rottenTomatoes}%
-            </span>
+            {movie.metrics.tmdb > 0 && <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold border border-white/10">
+              TMDB {movie.metrics.tmdb.toFixed(1)}/10 ({movie.metrics.voteCount} votos)
+            </span>}
           </div>
         </div>
       </div>
@@ -98,11 +98,11 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
           {/* Left Column: Official Poster & Action Bar */}
           <div className="lg:col-span-4 flex flex-col items-center lg:items-start">
             <div className="w-64 sm:w-80 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border-2 border-[#a078ff]/40 relative bg-black/40 group">
-              <img
+              {movie.posterUrl ? <img
                 src={movie.posterUrl}
                 alt={movie.title}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              />
+              /> : <div className="w-full h-full flex items-center justify-center text-sm text-[#958ea0]">Pôster não disponível no TMDB</div>}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"></div>
 
               {/* Play Trailer Overlay Button */}
@@ -115,11 +115,11 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                 </div>
               </button>
 
-              <div className="absolute bottom-3 left-3 right-3 text-center">
+              {movie.qualityBadge && <div className="absolute bottom-3 left-3 right-3 text-center">
                 <span className="text-[11px] font-semibold text-white/90 drop-shadow">
                   {movie.qualityBadge}
                 </span>
-              </div>
+              </div>}
             </div>
 
             {/* Quick Action Buttons Under Poster */}
@@ -129,7 +129,7 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-[#a078ff] to-[#6d3bd7] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-[0_0_24px_rgba(160,120,255,0.4)] hover:scale-[1.02] active:scale-[0.99] transition-all cursor-pointer"
               >
                 <span className="material-symbols-outlined text-lg">play_circle</span>
-                <span>Trailer Oficial (2m 14s)</span>
+                <span>Trailer disponível no TMDB</span>
               </button>
 
               <div className="grid grid-cols-2 gap-2">
@@ -191,19 +191,16 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
               <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-2">
                 {movie.title}
               </h1>
-              <p className="text-base sm:text-lg text-[#5de6ff] italic font-medium mb-4">
-                "{movie.tagline}"
-              </p>
+              {movie.tagline && <p className="text-base sm:text-lg text-[#5de6ff] italic font-medium mb-4">"{movie.tagline}"</p>}
 
               {/* Meta bar */}
               <div className="flex flex-wrap items-center gap-3 text-xs text-[#958ea0] pb-4 border-b border-white/5">
-                <span>Direção: <strong className="text-white">{movie.director}</strong></span>
-                <span>•</span>
-                <span>Ano: <strong className="text-white">{movie.releaseYear}</strong></span>
-                <span>•</span>
-                <span>Duração: <strong className="text-white">{movie.durationMinutes} minutos</strong></span>
-                <span>•</span>
-                <span>Classificação: <strong className="text-white">{movie.ageRating}</strong></span>
+                {movie.director && <span>Direção: <strong className="text-white">{movie.director}</strong></span>}
+                {movie.releaseYear > 0 && <span>Ano: <strong className="text-white">{movie.releaseYear}</strong></span>}
+                {movie.mediaType === 'tv'
+                  ? movie.numberOfSeasons && <span>Temporadas: <strong className="text-white">{movie.numberOfSeasons}</strong></span>
+                  : movie.durationMinutes > 0 && <span>Duração: <strong className="text-white">{movie.durationMinutes} minutos</strong></span>}
+                {movie.ageRating && <span>Classificação: <strong className="text-white">{movie.ageRating}</strong></span>}
               </div>
             </div>
 
@@ -262,7 +259,7 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                 </div>
 
                 {/* Emotional & Tension Arc Timeline */}
-                <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10 space-y-4">
+                {movie.emotionalArc?.length ? <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10 space-y-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-[#5de6ff] text-xl">show_chart</span>
                     Curva de Intensidade Dramática (Sem Spoilers)
@@ -296,10 +293,10 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                       </div>
                     ))}
                   </div>
-                </div>
+                </div> : null}
 
                 {/* Radar Breakdown */}
-                <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10">
+                {movie.radarScores ? <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10">
                   <h3 className="text-base font-bold text-white flex items-center gap-2 mb-4">
                     <span className="material-symbols-outlined text-[#4edea3] text-xl">equalizer</span>
                     Espectro de Atributos Cinematográficos
@@ -345,28 +342,27 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                       </div>
                     </div>
                   </div>
-                </div>
+                </div> : <p className="text-xs text-[#958ea0]">O TMDB não fornece dados estruturados de curva dramática ou atributos cinematográficos para este título.</p>}
               </div>
             )}
 
             {/* Tab 2: Synopsis */}
             {activeTab === 'sinopse' && (
               <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10 space-y-4 animate-in fade-in duration-300">
-                <h3 className="text-lg font-bold text-white">Sinopse Curada</h3>
+                <h3 className="text-lg font-bold text-white">Sinopse do TMDB</h3>
                 <p className="text-sm text-[#cbc3d7] leading-relaxed whitespace-pre-line">
                   {movie.synopsis}
                 </p>
-                <div className="pt-4 border-t border-white/5 text-xs text-[#958ea0]">
-                  Garantia CineMatch: Este texto foi auditado para remover qualquer detalhe ou reviravolta sobre o segundo e terceiro atos.
-                </div>
+                <div className="pt-4 border-t border-white/5 text-xs text-[#958ea0]">Fonte: The Movie Database (TMDB).</div>
               </div>
             )}
 
             {/* Tab 3: Streamings Availability */}
             {activeTab === 'streamings' && (
               <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10 space-y-4 animate-in fade-in duration-300">
-                <h3 className="text-lg font-bold text-white">Opções de Transmissão & Qualidade</h3>
+                <h3 className="text-lg font-bold text-white">Disponibilidade no Brasil (TMDB)</h3>
                 <div className="space-y-3">
+                  {movie.streamings.length === 0 && <p className="text-sm text-[#958ea0]">Não foi possível confirmar opções de acesso para este título.</p>}
                   {movie.streamings.map((st, idx) => (
                     <div
                       key={idx}
@@ -376,19 +372,18 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-white">{st.provider}</span>
                           <span className="px-2 py-0.5 rounded bg-[#4edea3]/20 text-[#4edea3] text-[10px] font-bold">
-                            {st.type === 'included' ? 'No seu plano' : `Aluguel ${st.price}`}
+                            {st.type === 'included' ? 'Assinatura' : st.type === 'rent' ? 'Aluguel' : st.type === 'buy' ? 'Compra' : st.type === 'ads' ? 'Gratuito com anúncios' : 'Gratuito'}
                           </span>
                         </div>
-                        <p className="text-xs text-[#958ea0] mt-1">{st.audioInfo}</p>
+                        <p className="text-xs text-[#958ea0] mt-1">{st.quality || 'Modalidade conforme catálogo TMDB'}</p>
                       </div>
 
-                      <button
-                        onClick={() => alert(`Iniciando reprodução de "${movie.title}" no aplicativo ${st.provider}...`)}
-                        className="px-5 py-2.5 rounded-xl bg-[#a078ff] hover:bg-[#6d3bd7] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-sm">play_arrow</span>
-                        <span>Dar o Play ({st.quality})</span>
-                      </button>
+                      {movie.watchLink || st.externalUrl
+                        ? <a href={movie.watchLink || st.externalUrl} target="_blank" rel="noreferrer" className="px-5 py-2.5 rounded-xl bg-[#a078ff] hover:bg-[#6d3bd7] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shrink-0">
+                            <span className="material-symbols-outlined text-sm">open_in_new</span>
+                            <span>Abrir opção no TMDB</span>
+                          </a>
+                        : <span className="text-xs text-[#958ea0]">Link de acesso indisponível</span>}
                     </div>
                   ))}
                 </div>
@@ -400,6 +395,7 @@ export const DetailScreen: React.FC<DetailScreenProps> = ({
               <div className="p-6 rounded-2xl bg-[#1e1f29] border border-white/10 space-y-4 animate-in fade-in duration-300">
                 <h3 className="text-lg font-bold text-white">Elenco & Equipe Criativa</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {movie.cast.length === 0 && <p className="text-sm text-[#958ea0]">O TMDB não retornou informações de elenco para este título.</p>}
                   {movie.cast.map((c, i) => (
                     <div key={i} className="flex flex-col items-center text-center p-3 rounded-xl bg-[#12131d] border border-white/5">
                       <img

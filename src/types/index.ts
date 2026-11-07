@@ -5,24 +5,28 @@ export interface CastMember {
 }
 
 export interface StreamingOption {
-  provider: 'Netflix' | 'Prime Video' | 'Max' | 'Apple TV' | 'Disney+' | 'Paramount+';
+  provider: string;
   logoText: string;
   badgeColor: string;
   quality: string;
-  type: 'included' | 'rent' | 'buy';
+  type: 'included' | 'rent' | 'buy' | 'free' | 'ads';
   price?: string;
   audioInfo: string;
+  externalUrl?: string;
+  logoUrl?: string;
 }
 
 export interface Movie {
   id: string;
   tmdbId?: number;
+  mediaType?: 'movie' | 'tv';
   title: string;
   tagline: string;
   originalTitle?: string;
   director: string;
   releaseYear: number;
   durationMinutes: number;
+  numberOfSeasons?: number;
   ageRating: string;
   qualityBadge: string;
   matchScore: number;
@@ -35,19 +39,18 @@ export interface Movie {
   aiMatchReason: string;
   matchHighlights: string[];
   metrics: {
-    imdb: number;
-    rottenTomatoes: number;
-    metacritic?: number;
-    audienceScore?: number;
+    tmdb: number;
+    voteCount: number;
   };
-  radarScores: {
-    tension: number; // 0-100
+  voteCount?: number;
+  radarScores?: {
+    tension: number;
     complexity: number;
     visualAesthetic: number;
     pacing: number;
     emotionalDepth: number;
   };
-  emotionalArc: {
+  emotionalArc?: {
     act: string;
     title: string;
     intensity: number;
@@ -56,6 +59,7 @@ export interface Movie {
   streamings: StreamingOption[];
   cast: CastMember[];
   similarMovieIds: string[];
+  watchLink?: string;
 }
 
 export interface ChatMessage {
@@ -69,19 +73,30 @@ export interface ChatMessage {
 }
 
 export interface UserPreferences {
-  activeStreamings: string[];
+  userId: string;
+  favoriteGenres: string[];
+  rejectedGenres: string[];
+  streamingProviders: string[];
+  preferredContentType: 'all' | 'movie' | 'tv';
   preferredDuration: 'any' | 'short' | 'standard' | 'epic';
-  tensionWeight: number;
-  complexityWeight: number;
-  visualWeight: number;
-  pacingWeight: number;
-  emotionalWeight: number;
+  preferredLanguage: string;
+  preferredYearRange?: string;
+  contentRestrictions: string[];
+  familyFriendly: boolean;
 }
 
 export interface WatchlistEntry {
-  movieId: string;
+  id: string;
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  title: string;
+  posterPath: string;
+  releaseYear: number;
+  durationMinutes: number;
+  genres: string[];
   addedAt: string;
   watched: boolean;
-  rating?: number;
+  userRating?: number;
   userNote?: string;
 }

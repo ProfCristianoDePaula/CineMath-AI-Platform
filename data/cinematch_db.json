@@ -30,6 +30,30 @@
       "preferredDuration": "short",
       "preferredLanguage": "pt-BR",
       "updatedAt": "2026-11-07T16:42:57.410Z"
+    },
+    "36400c48-843a-4054-ae12-e44423150703": {
+      "userId": "36400c48-843a-4054-ae12-e44423150703",
+      "favoriteGenres": [],
+      "rejectedGenres": [],
+      "streamingProviders": [],
+      "preferredContentType": "all",
+      "preferredDuration": "any",
+      "preferredLanguage": "any",
+      "contentRestrictions": [],
+      "familyFriendly": false,
+      "updatedAt": "2026-11-07T18:21:34.323Z"
+    },
+    "fd10efb1-158f-4653-8b68-9c352d8f563d": {
+      "userId": "fd10efb1-158f-4653-8b68-9c352d8f563d",
+      "favoriteGenres": [],
+      "rejectedGenres": [],
+      "streamingProviders": [],
+      "preferredContentType": "all",
+      "preferredDuration": "any",
+      "preferredLanguage": "any",
+      "contentRestrictions": [],
+      "familyFriendly": false,
+      "updatedAt": "2026-11-07T18:21:47.653Z"
     }
   },
   "watchlist": [
@@ -49,40 +73,6 @@
       "id": "wl_1794069802586_5xtdh",
       "addedAt": "2026-11-07T16:43:22.586Z",
       "userRating": 5
-    },
-    {
-      "id": "wl_1",
-      "userId": "user_default",
-      "tmdbId": 550,
-      "mediaType": "movie",
-      "title": "Clube da Luta",
-      "posterPath": "https://image.tmdb.org/t/p/w500/bptfVGEQuv6vDTIMVCHjJ9Dz8PX.jpg",
-      "releaseYear": 1999,
-      "durationMinutes": 139,
-      "genres": [
-        "Drama",
-        "Thriller"
-      ],
-      "addedAt": "2026-11-07T16:42:57.410Z",
-      "watched": false
-    },
-    {
-      "id": "wl_2",
-      "userId": "user_default",
-      "tmdbId": 157336,
-      "mediaType": "movie",
-      "title": "Interestelar",
-      "posterPath": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
-      "releaseYear": 2014,
-      "durationMinutes": 169,
-      "genres": [
-        "Ficção Científica",
-        "Drama"
-      ],
-      "addedAt": "2026-11-07T16:42:57.410Z",
-      "watched": true,
-      "userRating": 5,
-      "userNote": "Obra-prima da ficção científica moderna."
     }
   ],
   "history": [
@@ -94,15 +84,6 @@
       "interactionType": "watched",
       "id": "hist_1794069812146_qdn09",
       "createdAt": "2026-11-07T16:43:32.146Z"
-    },
-    {
-      "id": "hist_1",
-      "userId": "user_default",
-      "tmdbId": 157336,
-      "mediaType": "movie",
-      "title": "Interestelar",
-      "interactionType": "watched",
-      "createdAt": "2026-11-07T16:42:57.410Z"
     }
   ],
   "conversations": {

@@ -16,6 +16,9 @@ export interface UserPreferences {
   preferredContentType: 'all' | 'movie' | 'tv';
   preferredDuration: 'any' | 'short' | 'standard' | 'epic';
   preferredLanguage: string;
+  preferredYearRange?: string;
+  contentRestrictions: string[];
+  familyFriendly: boolean;
   updatedAt: string;
 }
 
@@ -69,7 +72,9 @@ interface DatabaseSchema {
   conversations: Record<string, ConversationSession>;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = process.env.CINEMATCH_DATA_DIR
+  ? path.resolve(process.env.CINEMATCH_DATA_DIR)
+  : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'cinematch_db.json');
 
 class Database {
@@ -78,6 +83,16 @@ class Database {
   constructor() {
     this.ensureDirectory();
     this.data = this.loadData();
+    const seedIds = new Set(['wl_1', 'wl_2']);
+    const seedHistoryIds = new Set(['hist_1']);
+    const migratedWatchlist = this.data.watchlist.filter((item) => !seedIds.has(item.id));
+    const migratedHistory = this.data.history.filter((item) => !seedHistoryIds.has(item.id));
+    if (migratedWatchlist.length !== this.data.watchlist.length ||
+        migratedHistory.length !== this.data.history.length) {
+      this.data.watchlist = migratedWatchlist;
+      this.data.history = migratedHistory;
+      this.saveData();
+    }
   }
 
   private ensureDirectory() {
@@ -92,72 +107,29 @@ class Database {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         return JSON.parse(raw);
       } catch (err) {
-        console.error('Error loading database, initializing fresh:', err);
+        console.error('Failed to parse the local CineMatch database.');
+        throw err;
       }
     }
 
     const initial: DatabaseSchema = {
-      users: [
-        {
-          id: 'user_default',
-          name: 'Cristiano',
-          email: 'prof.cristianodepaula@gmail.com',
-          createdAt: new Date().toISOString(),
-        },
-      ],
+      users: [],
       preferences: {
-        user_default: {
-          userId: 'user_default',
-          favoriteGenres: ['Suspense', 'Thriller Psicológico', 'Ficção Científica', 'Mistério'],
-          rejectedGenres: ['Terror Gore', 'Comédia Pastelão'],
-          streamingProviders: ['Netflix', 'Max', 'Prime Video', 'Apple TV'],
+        anonymous: {
+          userId: 'anonymous',
+          favoriteGenres: [],
+          rejectedGenres: [],
+          streamingProviders: [],
           preferredContentType: 'all',
-          preferredDuration: 'short',
-          preferredLanguage: 'pt-BR',
+          preferredDuration: 'any',
+          preferredLanguage: 'any',
+          contentRestrictions: [],
+          familyFriendly: false,
           updatedAt: new Date().toISOString(),
         },
       },
-      watchlist: [
-        {
-          id: 'wl_1',
-          userId: 'user_default',
-          tmdbId: 550,
-          mediaType: 'movie',
-          title: 'Clube da Luta',
-          posterPath: 'https://image.tmdb.org/t/p/w500/bptfVGEQuv6vDTIMVCHjJ9Dz8PX.jpg',
-          releaseYear: 1999,
-          durationMinutes: 139,
-          genres: ['Drama', 'Thriller'],
-          addedAt: new Date().toISOString(),
-          watched: false,
-        },
-        {
-          id: 'wl_2',
-          userId: 'user_default',
-          tmdbId: 157336,
-          mediaType: 'movie',
-          title: 'Interestelar',
-          posterPath: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg',
-          releaseYear: 2014,
-          durationMinutes: 169,
-          genres: ['Ficção Científica', 'Drama'],
-          addedAt: new Date().toISOString(),
-          watched: true,
-          userRating: 5,
-          userNote: 'Obra-prima da ficção científica moderna.',
-        },
-      ],
-      history: [
-        {
-          id: 'hist_1',
-          userId: 'user_default',
-          tmdbId: 157336,
-          mediaType: 'movie',
-          title: 'Interestelar',
-          interactionType: 'watched',
-          createdAt: new Date().toISOString(),
-        },
-      ],
+      watchlist: [],
+      history: [],
       conversations: {},
     };
 
@@ -167,11 +139,9 @@ class Database {
 
   private saveData(dataToSave?: DatabaseSchema) {
     this.ensureDirectory();
-    try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(dataToSave || this.data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('Failed to write database file:', err);
-    }
+    const temporaryFile = `${DB_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryFile, JSON.stringify(dataToSave || this.data, null, 2), 'utf-8');
+    fs.renameSync(temporaryFile, DB_FILE);
   }
 
   // Users
@@ -184,17 +154,25 @@ class Database {
     if (!this.data.preferences[userId]) {
       this.data.preferences[userId] = {
         userId,
-        favoriteGenres: ['Suspense', 'Mistério'],
+        favoriteGenres: [],
         rejectedGenres: [],
-        streamingProviders: ['Netflix', 'Max', 'Prime Video', 'Apple TV'],
+        streamingProviders: [],
         preferredContentType: 'all',
-        preferredDuration: 'short',
-        preferredLanguage: 'pt-BR',
+        preferredDuration: 'any',
+        preferredLanguage: 'any',
+        contentRestrictions: [],
+        familyFriendly: false,
         updatedAt: new Date().toISOString(),
       };
       this.saveData();
     }
-    return this.data.preferences[userId];
+    const preferences = this.data.preferences[userId];
+    if (!Array.isArray(preferences.contentRestrictions) || typeof preferences.familyFriendly !== 'boolean') {
+      preferences.contentRestrictions = Array.isArray(preferences.contentRestrictions) ? preferences.contentRestrictions : [];
+      preferences.familyFriendly = Boolean(preferences.familyFriendly);
+      this.saveData();
+    }
+    return preferences;
   }
 
   updatePreferences(userId: string, partial: Partial<UserPreferences>): UserPreferences {
@@ -217,21 +195,20 @@ class Database {
   addToWatchlist(item: Omit<WatchlistItem, 'id' | 'addedAt'> & { movieId?: string }): WatchlistItem {
     const existing = this.data.watchlist.find(
       (w) => w.userId === item.userId && (
-        (item.movieId && (w as any).movieId === item.movieId) ||
-        (item.tmdbId && w.tmdbId === item.tmdbId)
+        item.tmdbId > 0 && w.tmdbId === item.tmdbId && w.mediaType === item.mediaType
       )
     );
     if (existing) return existing;
 
-    const newItem: WatchlistItem & { movieId?: string } = {
+    const newItem: WatchlistItem = {
       ...item,
       id: `wl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       addedAt: new Date().toISOString(),
     };
 
-    this.data.watchlist.unshift(newItem as WatchlistItem);
+    this.data.watchlist.unshift(newItem);
     this.saveData();
-    return newItem as WatchlistItem;
+    return newItem;
   }
 
   removeFromWatchlist(userId: string, identifier: string | number): boolean {
@@ -240,7 +217,6 @@ class Database {
     this.data.watchlist = this.data.watchlist.filter((w) => {
       if (w.userId !== userId) return true;
       if (w.id === identifier) return false;
-      if ((w as any).movieId && (w as any).movieId === identifier) return false;
       if (!isNaN(numId) && w.tmdbId === numId) return false;
       return true;
     });
@@ -254,7 +230,6 @@ class Database {
     const item = this.data.watchlist.find((w) => {
       if (w.userId !== userId) return false;
       if (w.id === identifier) return true;
-      if ((w as any).movieId && (w as any).movieId === identifier) return true;
       if (!isNaN(numId) && w.tmdbId === numId) return true;
       return false;
     });

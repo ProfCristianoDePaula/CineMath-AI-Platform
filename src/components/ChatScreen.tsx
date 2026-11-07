@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Movie, ChatMessage } from '../types';
+import { Movie, ChatMessage, UserPreferences } from '../types';
 import { ASSETS } from '../data/assets';
 import { api } from '../services/api';
 
 interface ChatScreenProps {
   movies: Movie[];
+  connectedStreamings: string[];
+  preferences: UserPreferences | null;
+  initialPrompt: string;
+  onRecommendations: (movies: Movie[], notice?: string) => void;
   onSelectMovie: (movie: Movie) => void;
   onGoToNeural: () => void;
   onGoToMatches: () => void;
@@ -12,6 +16,10 @@ interface ChatScreenProps {
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   movies,
+  connectedStreamings,
+  preferences,
+  initialPrompt,
+  onRecommendations,
   onSelectMovie,
   onGoToNeural,
   onGoToMatches,
@@ -20,7 +28,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     {
       id: 'msg-1',
       sender: 'ai',
-      text: 'Olá, Cristiano! Para encontrar o filme ideal para a sua sessão de hoje: o que você está a fim de sentir agora? Ou me conte um título recente que você amou!',
+      text: 'Olá! Vamos encontrar algo ótimo para assistir. O que você está a fim de sentir hoje?',
       timestamp: 'Agora',
       chips: [
         'Suspense que prende do início ao fim',
@@ -30,26 +38,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       ],
       showFilters: true,
     },
-    {
-      id: 'msg-2',
-      sender: 'user',
-      text: 'Quero um suspense psicológico bem tenso, estilo Garota Exemplar ou Ilha do Medo, com fotografia impecável e disponível na Netflix ou Max.',
-      timestamp: '1 min atrás',
-    },
-    {
-      id: 'msg-3',
-      sender: 'ai',
-      text: 'Entendido! Analisando parâmetros: thriller psicológico com alta tensão contínua, cinematografia neo-noir premiada, reviravolta no terceiro ato e duração objetiva de menos de 1h30 na Netflix e Max.\n\nEncontrei uma correspondência de 98% no catálogo:',
-      timestamp: 'Agora',
-      previewMovieId: 'sussurros-no-labirinto',
-    },
   ]);
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedDuration, setSelectedDuration] = useState<'short' | 'standard' | 'epic' | 'any'>('short');
-  const [selectedStreamings, setSelectedStreamings] = useState<string[]>(['Netflix', 'Max']);
+  const [selectedDuration, setSelectedDuration] = useState<'short' | 'standard' | 'epic' | 'any'>(
+    preferences?.preferredDuration || 'any',
+  );
+  const [selectedStreamings, setSelectedStreamings] = useState<string[]>(connectedStreamings);
+  const [recommendationCount, setRecommendationCount] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const initialPromptSent = useRef('');
 
   const durationOptions = [
     { id: 'short' as const, label: 'Até 90 min', desc: 'Objetivo e veloz' },
@@ -70,6 +69,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    setSelectedStreamings(connectedStreamings);
+  }, [connectedStreamings]);
+
+  useEffect(() => {
+    setSelectedDuration(preferences?.preferredDuration || 'any');
+  }, [preferences?.preferredDuration]);
+
   const toggleStreaming = (provider: string) => {
     setSelectedStreamings((prev) =>
       prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider]
@@ -78,7 +85,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
-    if (!text) return;
+    if (!text || isTyping) return;
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -103,46 +110,50 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         activeStreamings: selectedStreamings,
       });
 
-      let previewId = 'tmdb-210577';
-      if (response?.isReadyForRecommendations) {
-        // Query recommendation engine with extracted filters
+      let previewId: string | undefined;
+      let recommendationNotice = '';
+      if (response.isReadyForRecommendations) {
         const rec = await api.getRecommendations({
-          userPrompt: text,
-          preferredGenres: response.extractedFilters?.genres,
-          maxDurationMinutes: selectedDuration === 'short' ? 95 : selectedDuration === 'standard' ? 125 : undefined,
-          activeStreamings: selectedStreamings,
+          userPrompt: [...messages.filter((message) => message.sender === 'user').map((message) => message.text), text].join('\n'),
+          contentType: response.extractedFilters.contentType,
+          preferredDuration: selectedDuration,
+          mood: response.extractedFilters.mood,
+          preferredGenres: response.extractedFilters.genres,
+          rejectedGenres: response.extractedFilters.rejectedGenres,
+          maxDurationMinutes: response.extractedFilters.maxDurationMinutes,
+          activeStreamings: selectedStreamings.length
+            ? selectedStreamings
+            : response.extractedFilters.streamings || [],
+          viewingContext: response.extractedFilters.viewingContext,
+          preferredYearRange: response.extractedFilters.preferredYearRange,
+          excludedTitles: response.extractedFilters.excludedTitles,
+          contentRestrictions: preferences?.contentRestrictions,
+          familyFriendly: preferences?.familyFriendly,
         });
-        if (rec?.topMatch) {
-          previewId = rec.topMatch.id;
-        }
+        onRecommendations(rec.recommendations, rec.metadata.message);
+        setRecommendationCount(rec.recommendations.length);
+        previewId = rec.topMatch?.id;
+        recommendationNotice = rec.metadata.message || '';
       }
 
       const aiMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         sender: 'ai',
-        text:
-          response?.replyText ||
-          `Entendido! Analisei seu pedido "${text}" e cruzei com seus provedores ativos (${selectedStreamings.join(', ')}). Veja a melhor recomendação encontrada:`,
+        text: [response.replyText, recommendationNotice].filter(Boolean).join('\n\n'),
         timestamp: 'Agora',
-        chips: response?.suggestedChips || [
-          'Suspense com reviravolta chocante',
-          'Ficção científica cerebral',
-          'Produção curta (-90 min)',
-        ],
+        chips: response.suggestedChips,
         previewMovieId: previewId,
       };
 
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
-      console.error('Chat error:', err);
       setMessages((prev) => [
         ...prev,
         {
           id: `msg-${Date.now() + 1}`,
           sender: 'ai',
-          text: 'Compreendido! Cruzei suas preferências com nosso catálogo. Aqui está o título com maior compatibilidade:',
+          text: err instanceof Error ? err.message : 'Não foi possível concluir a solicitação. Tente novamente.',
           timestamp: 'Agora',
-          previewMovieId: 'tmdb-210577',
         },
       ]);
     } finally {
@@ -150,7 +161,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   };
 
-  const findMovie = (id: string) => movies.find((m) => m.id === id) || movies[0];
+  const findMovie = (id: string) => movies.find((m) => m.id === id);
+
+  useEffect(() => {
+    if (initialPrompt && initialPromptSent.current !== initialPrompt) {
+      initialPromptSent.current = initialPrompt;
+      void handleSend(initialPrompt);
+    }
+  }, [initialPrompt]);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-[calc(100vh-5rem)]">
@@ -186,11 +204,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 {
                   id: 'msg-new',
                   sender: 'ai',
-                  text: 'Sessão reiniciada! Qual o clima da sua sessão hoje?',
+                  text: 'Vamos começar de novo! O que você gostaria de assistir agora?',
                   timestamp: 'Agora',
                   chips: ['Suspense psicológico', 'Ficção científica cerebral', 'Filme curto (-90 min)'],
+                  showFilters: true,
                 },
               ]);
+              onRecommendations([]);
+              setRecommendationCount(0);
             }}
             className="p-2 rounded-lg bg-[#282934] text-[#958ea0] hover:text-white transition-colors cursor-pointer"
             title="Reiniciar conversa"
@@ -204,7 +225,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       <div className="flex-1 space-y-6 pb-6">
         {messages.map((msg) => {
           const isAi = msg.sender === 'ai';
-          const previewMovie = msg.previewMovieId ? findMovie(msg.previewMovieId) : null;
+          const previewMovie = msg.previewMovieId ? findMovie(msg.previewMovieId) : undefined;
 
           return (
             <div
@@ -297,10 +318,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                           <div>
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] uppercase font-bold text-primary tracking-wider">
-                                {previewMovie.genres[0]}
+                                {previewMovie.genres[0] || 'Sem gênero informado'}
                               </span>
                               <span className="px-2 py-0.5 rounded-full bg-[#4edea3]/20 text-[#4edea3] text-[10px] font-bold border border-[#4edea3]/30">
-                                {previewMovie.matchScore}% Match
+                                {previewMovie.matchScore}% de compatibilidade
                               </span>
                             </div>
                             <h4 className="text-base font-bold text-white mt-0.5">{previewMovie.title}</h4>
@@ -371,7 +392,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         <div className="flex items-center justify-between gap-3 mb-3 px-1">
           <div className="flex items-center gap-2 text-xs text-[#958ea0]">
             <span className="w-2 h-2 rounded-full bg-[#4edea3]"></span>
-            <span>3 filmes candidatos identificados</span>
+            <span>{recommendationCount ? `${recommendationCount} recomendações encontradas` : 'Preferências ainda não analisadas'}</span>
           </div>
           <button
             onClick={onGoToNeural}

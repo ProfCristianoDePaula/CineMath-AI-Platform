@@ -1,282 +1,158 @@
 import { GoogleGenAI } from '@google/genai';
 import { StandardizedMovie } from './tmdb.service';
 
+export interface ExtractedFilters {
+  contentType?: 'movie' | 'tv' | 'all';
+  mood?: string;
+  genres?: string[];
+  rejectedGenres?: string[];
+  maxDurationMinutes?: number;
+  preferredYearRange?: string;
+  viewingContext?: string;
+  streamings?: string[];
+  keywords?: string[];
+  excludedTitles?: string[];
+}
+
 export interface ConversationInterpretation {
   replyText: string;
   isReadyForRecommendations: boolean;
-  suggestedChips?: string[];
-  extractedFilters: {
-    mood?: string;
-    genres?: string[];
-    rejectedGenres?: string[];
-    maxDurationMinutes?: number;
-    preferredYearRange?: string;
-    viewingContext?: string;
-    streamings?: string[];
-    keywords?: string[];
+  suggestedChips: string[];
+  extractedFilters: ExtractedFilters;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function cleanList(value: unknown, limit = 12): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().slice(0, 100))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function safeFilters(value: unknown): ExtractedFilters {
+  if (!isRecord(value)) return {};
+  const maxDuration = Number(value.maxDurationMinutes);
+  const contentType = value.contentType;
+  return {
+    contentType: contentType === 'movie' || contentType === 'tv' || contentType === 'all'
+      ? contentType
+      : undefined,
+    mood: typeof value.mood === 'string' ? value.mood.slice(0, 160) : undefined,
+    genres: cleanList(value.genres),
+    rejectedGenres: cleanList(value.rejectedGenres),
+    maxDurationMinutes: Number.isFinite(maxDuration) && maxDuration > 0 && maxDuration <= 600
+      ? maxDuration
+      : undefined,
+    preferredYearRange: typeof value.preferredYearRange === 'string'
+      ? value.preferredYearRange.slice(0, 40)
+      : undefined,
+    viewingContext: typeof value.viewingContext === 'string' ? value.viewingContext.slice(0, 80) : undefined,
+    streamings: cleanList(value.streamings),
+    keywords: cleanList(value.keywords),
+    excludedTitles: cleanList(value.excludedTitles),
   };
 }
 
 export class GeminiService {
-  private ai: GoogleGenAI | null = null;
-  private modelName = 'gemini-3.8-flash';
+  private readonly ai: GoogleGenAI | null;
+  private readonly modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
   constructor() {
-    const key = process.env.GEMINI_API_KEY;
-    if (key && key !== 'MY_GEMINI_API_KEY') {
-      try {
-        this.ai = new GoogleGenAI({
-          apiKey: key,
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build',
-            },
-          },
-        });
-      } catch (err) {
-        console.warn('Failed to initialize GoogleGenAI client:', err);
-      }
-    }
+    const apiKey = process.env.GEMINI_API_KEY;
+    this.ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   isAvailable(): boolean {
-    return !!this.ai;
+    return this.ai !== null;
   }
 
-  // Interpret user message in conversation
+  private requireClient(): GoogleGenAI {
+    if (!this.ai) {
+      throw Object.assign(new Error('GEMINI_API_KEY não configurada no servidor.'), { status: 503 });
+    }
+    return this.ai;
+  }
+
   async interpretConversation(params: {
     messageHistory: Array<{ sender: 'ai' | 'user'; text: string }>;
     latestMessage: string;
     activeStreamings: string[];
-    currentPreferences?: Record<string, any>;
   }): Promise<ConversationInterpretation> {
-    if (!this.ai) {
-      return this.fallbackInterpretation(params.latestMessage, params.activeStreamings);
-    }
-
-    const systemPrompt = `Você é o CineMatch AI, um assistente especialista em curadoria cinematográfica e streaming no Brasil.
-Fale SEMPRE em português brasileiro, com tom cordial, sofisticado, cinéfilo e acolhedor.
-Seu objetivo é:
-1. Compreender o humor e intenções do usuário (o que ele quer sentir, ritmo, época, com quem vai assistir).
-2. Não fazer perguntas repetitivas ou burocráticas. Se o usuário já deu informação suficiente (ex: "quero suspense tenso na netflix"), conclua que JÁ HÁ dados suficientes para recomendar!
-3. Responder em formato JSON estrito com esta estrutura:
-{
-  "replyText": "sua resposta em texto fluido",
-  "isReadyForRecommendations": boolean,
-  "suggestedChips": ["chip1", "chip2"],
-  "extractedFilters": {
-    "mood": "string",
-    "genres": ["gêneros preferidos em português"],
-    "rejectedGenres": ["gêneros a evitar"],
-    "maxDurationMinutes": number ou null,
-    "viewingContext": "solo" ou "couple" ou "friends" ou "family",
-    "streamings": ["plataformas mencionadas"],
-    "keywords": ["palavras-chave do tema"]
-  }
-}`;
-
-    const context = `
-Histórico da conversa:
-${params.messageHistory.map((m) => `${m.sender.toUpperCase()}: ${m.text}`).join('\n')}
-MENSAGEM ATUAL DO USUÁRIO: "${params.latestMessage}"
-Streamings ativos no perfil: ${params.activeStreamings.join(', ')}
-`;
+    const client = this.requireClient();
+    const systemPrompt = `Você é CineMatch AI, assistente de descoberta de filmes e séries no Brasil. Converse em português brasileiro, com tom amigável, direto e natural. Use o histórico para preservar preferências e evitar perguntas repetidas. Faça no máximo uma pergunta por resposta. Quando já houver informação suficiente para uma busca, marque isReadyForRecommendations como true. Nunca invente títulos, avaliações, identificadores, links ou disponibilidade; os dados serão consultados pelo catálogo.
+Retorne somente JSON válido com: replyText (string), isReadyForRecommendations (boolean), suggestedChips (array de strings) e extractedFilters com contentType ("movie", "tv" ou "all"), mood, genres, rejectedGenres, maxDurationMinutes, preferredYearRange, viewingContext, streamings, keywords e excludedTitles. Retorne somente filtros que possam ser inferidos das mensagens; use arrays vazios quando não houver itens.`;
+    const conversation = params.messageHistory
+      .slice(-16)
+      .map((message) => `${message.sender === 'user' ? 'USUÁRIO' : 'ASSISTENTE'}: ${message.text.slice(0, 2000)}`)
+      .join('\n');
+    const prompt = `${systemPrompt}\n\nPlataformas informadas: ${params.activeStreamings.join(', ') || 'sem preferência'}\nHistórico:\n${conversation}\n\nMensagem atual do usuário: ${params.latestMessage}`;
 
     try {
-      const response = await this.ai.models.generateContent({
+      const response = await client.models.generateContent({
         model: this.modelName,
-        contents: `${systemPrompt}\n\n${context}`,
-        config: {
-          responseMimeType: 'application/json',
-          thinkingConfig: {
-            // Default level
-          },
-        },
+        contents: prompt,
+        config: { responseMimeType: 'application/json' },
       });
-
-      const text = response.text?.trim() || '';
-      const parsed = JSON.parse(text) as ConversationInterpretation;
-      return parsed;
-    } catch (err) {
-      console.error('Gemini interpretConversation error:', err);
-      return this.fallbackInterpretation(params.latestMessage, params.activeStreamings);
+      const parsed: unknown = JSON.parse(response.text || '');
+      if (!isRecord(parsed) || typeof parsed.replyText !== 'string' ||
+          typeof parsed.isReadyForRecommendations !== 'boolean') {
+        throw new Error('Formato de resposta inválido do Gemini.');
+      }
+      return {
+        replyText: parsed.replyText.slice(0, 1200),
+        isReadyForRecommendations: parsed.isReadyForRecommendations,
+        suggestedChips: cleanList(parsed.suggestedChips, 6),
+        extractedFilters: safeFilters(parsed.extractedFilters),
+      };
+    } catch (error) {
+      console.error('Gemini conversation request failed.');
+      throw Object.assign(new Error('A conversa com a IA falhou. Tente novamente.'), { status: 502, cause: error });
     }
   }
 
-  // Generate personalized justifications for the top 3 recommended movies
   async generateJustifications(params: {
     movies: StandardizedMovie[];
     userPrompt: string;
     extractedMood?: string;
   }): Promise<Record<number, string>> {
-    if (!this.ai || params.movies.length === 0) {
-      const fallbacks: Record<number, string> = {};
-      for (const m of params.movies) {
-        fallbacks[m.tmdbId] = m.aiMatchReason;
-      }
-      return fallbacks;
-    }
-
-    const prompt = `Como CineMatch AI, crie uma justificativa personalizada e sem spoilers (máximo 2 a 3 frases) em português para cada um destes 3 filmes, explicando por que eles combinam com o pedido: "${params.userPrompt}".
-
-Filmes:
-${params.movies
-  .map(
-    (m, i) => `${i + 1}. ID: ${m.tmdbId} | Título: ${m.title} | Gêneros: ${m.genres.join(', ')} | Direção: ${m.director} | Sinopse: ${m.synopsis}`
-  )
-  .join('\n')}
-
-Retorne apenas um JSON no formato:
-{
-  "justifications": [
-    { "tmdbId": 12345, "justification": "texto personalizado..." }
-  ]
-}`;
+    if (params.movies.length === 0) return {};
+    const client = this.requireClient();
+    const prompt = `Escreva justificativas personalizadas, em português brasileiro, sem spoilers e com no máximo duas frases para estes títulos. Use somente os fatos fornecidos e não crie dados. Devolva JSON com a propriedade justifications, uma lista de objetos {tmdbId, justification}. Pedido do usuário: ${params.userPrompt.slice(0, 1000)}. Humor: ${(params.extractedMood || '').slice(0, 160)}. Títulos: ${JSON.stringify(params.movies.map((movie) => ({
+      tmdbId: movie.tmdbId,
+      title: movie.title,
+      genres: movie.genres,
+      synopsis: movie.synopsis.slice(0, 500),
+      rating: movie.metrics.tmdb,
+    })))}`;
 
     try {
-      const response = await this.ai.models.generateContent({
+      const response = await client.models.generateContent({
         model: this.modelName,
         contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        },
+        config: { responseMimeType: 'application/json' },
       });
-
-      const text = response.text?.trim() || '{}';
-      const parsed = JSON.parse(text);
-      const result: Record<number, string> = {};
-      if (Array.isArray(parsed.justifications)) {
-        for (const item of parsed.justifications) {
-          result[item.tmdbId] = item.justification;
-        }
+      const parsed: unknown = JSON.parse(response.text || '');
+      if (!isRecord(parsed) || !Array.isArray(parsed.justifications)) {
+        throw new Error('Formato de justificativa inválido do Gemini.');
       }
-      return result;
-    } catch (err) {
-      console.warn('Failed to generate justifications with Gemini:', err);
-      const fallbacks: Record<number, string> = {};
-      for (const m of params.movies) {
-        fallbacks[m.tmdbId] = m.aiMatchReason;
+      const allowedIds = new Set(params.movies.map((movie) => movie.tmdbId));
+      const output: Record<number, string> = {};
+      for (const item of parsed.justifications) {
+        if (!isRecord(item) || !Number.isSafeInteger(item.tmdbId) ||
+            typeof item.justification !== 'string' || !allowedIds.has(Number(item.tmdbId))) continue;
+        const justification = item.justification.trim().slice(0, 500);
+        if (justification) output[Number(item.tmdbId)] = justification;
       }
-      return fallbacks;
+      return output;
+    } catch (error) {
+      console.error('Gemini justification request failed.');
+      throw Object.assign(new Error('Não foi possível gerar as justificativas com a IA.'), { status: 502, cause: error });
     }
-  }
-
-  // Fallback heuristic interpretation when GEMINI_API_KEY is not configured
-  private fallbackInterpretation(
-    text: string,
-    activeStreamings: string[]
-  ): ConversationInterpretation {
-    const lower = text.toLowerCase().trim();
-
-    // Check for greeting or generic initial message
-    const isGreeting =
-      lower === 'oi' ||
-      lower === 'olá' ||
-      lower === 'ola' ||
-      lower === 'boa noite' ||
-      lower === 'boa tarde' ||
-      lower === 'bom dia' ||
-      lower.startsWith('começar');
-
-    if (isGreeting) {
-      return {
-        replyText:
-          'Olá! Estou pronto para encontrar seu próximo título ideal. O que você gostaria de sentir hoje? Ou se preferir, me diga algum filme recente que você amou para eu usar como referência!',
-        isReadyForRecommendations: false,
-        suggestedChips: [
-          'Suspense que prende do início ao fim',
-          'Ficção científica cerebral',
-          'Filme leve e reconfortante',
-          'Produção curta (menos de 90 min)',
-        ],
-        extractedFilters: {
-          mood: 'descoberta inicial',
-          genres: [],
-          streamings: activeStreamings,
-        },
-      };
-    }
-
-    // Genre extraction
-    const genres: string[] = [];
-    if (lower.includes('suspense') || lower.includes('thriller') || lower.includes('psicológico') || lower.includes('tensão') || lower.includes('investigação')) {
-      genres.push('Suspense', 'Mistério');
-    }
-    if (lower.includes('ficção') || lower.includes('sci-fi') || lower.includes('espaço') || lower.includes('futuro') || lower.includes('distopia') || lower.includes('cyberpunk')) {
-      genres.push('Ficção Científica');
-    }
-    if (lower.includes('comédia') || lower.includes('rir') || lower.includes('engraçado') || lower.includes('divertido')) {
-      genres.push('Comédia');
-    }
-    if (lower.includes('ação') || lower.includes('tiro') || lower.includes('adrenalina') || lower.includes('luta')) {
-      genres.push('Ação');
-    }
-    if (lower.includes('terror') || lower.includes('medo') || lower.includes('assustador') || lower.includes('horror')) {
-      genres.push('Terror');
-    }
-    if (lower.includes('drama') || lower.includes('emocionante') || lower.includes('chorar') || lower.includes('profundo')) {
-      genres.push('Drama');
-    }
-    if (lower.includes('romance') || lower.includes('romântico') || lower.includes('amor')) {
-      genres.push('Romance');
-    }
-    if (lower.includes('animação') || lower.includes('desenho') || lower.includes('anime')) {
-      genres.push('Animação');
-    }
-
-    if (genres.length === 0) {
-      genres.push('Suspense', 'Mistério');
-    }
-
-    // Duration extraction
-    let maxDurationMinutes: number | undefined = undefined;
-    if (lower.includes('90') || lower.includes('curto') || lower.includes('rápido') || lower.includes('menos de 1h30') || lower.includes('menos de 90')) {
-      maxDurationMinutes = 95;
-    } else if (lower.includes('120') || lower.includes('2 horas') || lower.includes('2h') || lower.includes('padrão')) {
-      maxDurationMinutes = 125;
-    }
-
-    // Context
-    let viewingContext = 'solo';
-    if (lower.includes('casal') || lower.includes('dois') || lower.includes('namorada') || lower.includes('namorado') || lower.includes('esposa') || lower.includes('marido')) {
-      viewingContext = 'couple';
-    } else if (lower.includes('amigos') || lower.includes('galera') || lower.includes('turma')) {
-      viewingContext = 'friends';
-    } else if (lower.includes('família') || lower.includes('familia') || lower.includes('filhos') || lower.includes('crianças')) {
-      viewingContext = 'family';
-    }
-
-    // Streaming mentioned in prompt
-    const mentionedStreamings: string[] = [];
-    if (lower.includes('netflix')) mentionedStreamings.push('Netflix');
-    if (lower.includes('max') || lower.includes('hbo')) mentionedStreamings.push('Max');
-    if (lower.includes('prime') || lower.includes('amazon')) mentionedStreamings.push('Prime Video');
-    if (lower.includes('apple')) mentionedStreamings.push('Apple TV');
-    if (lower.includes('disney')) mentionedStreamings.push('Disney+');
-
-    const effectiveStreamings = mentionedStreamings.length > 0 ? mentionedStreamings : activeStreamings;
-
-    const durationText = maxDurationMinutes ? `com até ${maxDurationMinutes} minutos ` : '';
-    const contextText = viewingContext === 'couple' ? 'para uma sessão a dois ' : viewingContext === 'family' ? 'para assistir em família ' : '';
-
-    return {
-      replyText: `Entendido perfeitamente! Identifiquei seu interesse por ${genres.join(' e ')} ${durationText}${contextText}nos catálogos ativos (${effectiveStreamings.join(', ')}). Cruzando os metadados do motor neural...`,
-      isReadyForRecommendations: true,
-      suggestedChips: [
-        'Suspense com reviravolta chocante',
-        'Ficção científica cerebral',
-        'Produção curta (-90 min)',
-        'Mais avaliados pela crítica',
-      ],
-      extractedFilters: {
-        mood: genres.includes('Suspense') ? 'tenso e investigativo' : 'envolvente e dinâmico',
-        genres,
-        maxDurationMinutes,
-        viewingContext,
-        streamings: effectiveStreamings,
-        keywords: [lower.slice(0, 40)],
-      },
-    };
   }
 }
 

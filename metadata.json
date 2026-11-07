@@ -1,0 +1,6 @@
+{
+  "name": "CineMatch AI Platform",
+  "description": "Curadoria cinematográfica inteligente com IA generativa, análise de afinidade neural e descoberta personalizada para streamings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

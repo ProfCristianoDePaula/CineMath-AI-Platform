@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #d0bcff;
+  --color-primary-container: #a078ff;
+  --color-inverse-primary: #6d3bd7;
+  --color-on-primary: #3c0091;
+  --color-on-primary-container: #340080;
+  --color-secondary: #5de6ff;
+  --color-secondary-container: #00cbe6;
+  --color-on-secondary: #00363e;
+  --color-tertiary: #4edea3;
+  --color-tertiary-container: #00a572;
+  --color-surface: #12131d;
+  --color-surface-dim: #12131d;
+  --color-surface-container: #1e1f29;
+  --color-surface-container-low: #1a1b25;
+  --color-surface-container-high: #282934;
+  --color-surface-container-highest: #33343f;
+  --color-surface-bright: #383844;
+  --color-surface-variant: #33343f;
+  --color-on-surface: #e2e1f0;
+  --color-on-surface-variant: #cbc3d7;
+  --color-outline: #958ea0;
+  --color-outline-variant: #494454;
+  --font-sans: 'Google Sans', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Google Sans Display', 'Google Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #12131d;
+  color: #e2e1f0;
+  overflow-x: hidden;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.material-symbols-outlined.fill-1 {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #12131d;
+}
+::-webkit-scrollbar-thumb {
+  background: #282934;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #33343f;
+}

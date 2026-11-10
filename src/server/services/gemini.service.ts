@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { CloudflareAIService, JsonSchema } from './cloudflare-ai.service';
 import { StandardizedMovie } from './tmdb.service';
 
 export interface ExtractedFilters {
@@ -61,6 +62,12 @@ function safeFilters(value: unknown): ExtractedFilters {
 export class GeminiService {
   private readonly ai: GoogleGenAI | null;
   private readonly modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  readonly provider = process.env.AI_PROVIDER || 'gemini';
+  private readonly cloudflare = new CloudflareAIService(
+    process.env.CLOUDFLARE_ACCOUNT_ID || '',
+    process.env.CLOUDFLARE_API_TOKEN || '',
+    process.env.CLOUDFLARE_AI_MODEL || '@cf/meta/llama-3.1-8b-instruct',
+  );
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -68,14 +75,24 @@ export class GeminiService {
   }
 
   isAvailable(): boolean {
-    return this.ai !== null;
+    return this.provider === 'cloudflare' ? this.cloudflare.isAvailable() :
+      this.provider === 'gemini' && this.ai !== null;
   }
 
-  private requireClient(): GoogleGenAI {
+  private async generateJson(prompt: string, schema: JsonSchema): Promise<unknown> {
+    if (this.provider === 'cloudflare') return this.cloudflare.generateJson(prompt, schema);
+    if (this.provider !== 'gemini') {
+      throw Object.assign(new Error('AI_PROVIDER deve ser cloudflare ou gemini.'), { status: 503 });
+    }
     if (!this.ai) {
       throw Object.assign(new Error('GEMINI_API_KEY não configurada no servidor.'), { status: 503 });
     }
-    return this.ai;
+    const response = await this.ai.models.generateContent({
+      model: this.modelName,
+      contents: prompt,
+      config: { responseMimeType: 'application/json' },
+    });
+    return JSON.parse(response.text || '') as unknown;
   }
 
   async interpretConversation(params: {
@@ -83,7 +100,6 @@ export class GeminiService {
     latestMessage: string;
     activeStreamings: string[];
   }): Promise<ConversationInterpretation> {
-    const client = this.requireClient();
     const systemPrompt = `Você é CineMatch AI, assistente de descoberta de filmes e séries no Brasil. Converse em português brasileiro, com tom amigável, direto e natural. Use o histórico para preservar preferências e evitar perguntas repetidas. Faça no máximo uma pergunta por resposta. Quando já houver informação suficiente para uma busca, marque isReadyForRecommendations como true. Nunca invente títulos, avaliações, identificadores, links ou disponibilidade; os dados serão consultados pelo catálogo.
 Retorne somente JSON válido com: replyText (string), isReadyForRecommendations (boolean), suggestedChips (array de strings) e extractedFilters com contentType ("movie", "tv" ou "all"), mood, genres, rejectedGenres, maxDurationMinutes, preferredYearRange, viewingContext, streamings, keywords e excludedTitles. Retorne somente filtros que possam ser inferidos das mensagens; use arrays vazios quando não houver itens.`;
     const conversation = params.messageHistory
@@ -93,12 +109,30 @@ Retorne somente JSON válido com: replyText (string), isReadyForRecommendations 
     const prompt = `${systemPrompt}\n\nPlataformas informadas: ${params.activeStreamings.join(', ') || 'sem preferência'}\nHistórico:\n${conversation}\n\nMensagem atual do usuário: ${params.latestMessage}`;
 
     try {
-      const response = await client.models.generateContent({
-        model: this.modelName,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' },
+      const parsed = await this.generateJson(prompt, {
+        type: 'object',
+        properties: {
+          replyText: { type: 'string' },
+          isReadyForRecommendations: { type: 'boolean' },
+          suggestedChips: { type: 'array', items: { type: 'string' } },
+          extractedFilters: {
+            type: 'object',
+            properties: {
+              contentType: { type: 'string', enum: ['movie', 'tv', 'all'] },
+              mood: { type: 'string' },
+              genres: { type: 'array', items: { type: 'string' } },
+              rejectedGenres: { type: 'array', items: { type: 'string' } },
+              maxDurationMinutes: { type: 'number' },
+              preferredYearRange: { type: 'string' },
+              viewingContext: { type: 'string' },
+              streamings: { type: 'array', items: { type: 'string' } },
+              keywords: { type: 'array', items: { type: 'string' } },
+              excludedTitles: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+        required: ['replyText', 'isReadyForRecommendations', 'suggestedChips', 'extractedFilters'],
       });
-      const parsed: unknown = JSON.parse(response.text || '');
       if (!isRecord(parsed) || typeof parsed.replyText !== 'string' ||
           typeof parsed.isReadyForRecommendations !== 'boolean') {
         throw new Error('Formato de resposta inválido do Gemini.');
@@ -110,7 +144,9 @@ Retorne somente JSON válido com: replyText (string), isReadyForRecommendations 
         extractedFilters: safeFilters(parsed.extractedFilters),
       };
     } catch (error) {
-      console.error('Gemini conversation request failed.');
+      if (error instanceof Error && 'status' in error &&
+          (error.status === 503 || error.status === 429 || (error.status === 502 && this.provider === 'cloudflare'))) throw error;
+      console.error('AI conversation request failed.', { provider: this.provider });
       throw Object.assign(new Error('A conversa com a IA falhou. Tente novamente.'), { status: 502, cause: error });
     }
   }
@@ -121,7 +157,6 @@ Retorne somente JSON válido com: replyText (string), isReadyForRecommendations 
     extractedMood?: string;
   }): Promise<Record<number, string>> {
     if (params.movies.length === 0) return {};
-    const client = this.requireClient();
     const prompt = `Escreva justificativas personalizadas, em português brasileiro, sem spoilers e com no máximo duas frases para estes títulos. Use somente os fatos fornecidos e não crie dados. Devolva JSON com a propriedade justifications, uma lista de objetos {tmdbId, justification}. Pedido do usuário: ${params.userPrompt.slice(0, 1000)}. Humor: ${(params.extractedMood || '').slice(0, 160)}. Títulos: ${JSON.stringify(params.movies.map((movie) => ({
       tmdbId: movie.tmdbId,
       title: movie.title,
@@ -131,12 +166,20 @@ Retorne somente JSON válido com: replyText (string), isReadyForRecommendations 
     })))}`;
 
     try {
-      const response = await client.models.generateContent({
-        model: this.modelName,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' },
+      const parsed = await this.generateJson(prompt, {
+        type: 'object',
+        properties: {
+          justifications: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { tmdbId: { type: 'integer' }, justification: { type: 'string' } },
+              required: ['tmdbId', 'justification'],
+            },
+          },
+        },
+        required: ['justifications'],
       });
-      const parsed: unknown = JSON.parse(response.text || '');
       if (!isRecord(parsed) || !Array.isArray(parsed.justifications)) {
         throw new Error('Formato de justificativa inválido do Gemini.');
       }
@@ -150,7 +193,9 @@ Retorne somente JSON válido com: replyText (string), isReadyForRecommendations 
       }
       return output;
     } catch (error) {
-      console.error('Gemini justification request failed.');
+      if (error instanceof Error && 'status' in error &&
+          (error.status === 503 || error.status === 429 || (error.status === 502 && this.provider === 'cloudflare'))) throw error;
+      console.error('AI justification request failed.', { provider: this.provider });
       throw Object.assign(new Error('Não foi possível gerar as justificativas com a IA.'), { status: 502, cause: error });
     }
   }

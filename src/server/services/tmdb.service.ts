@@ -141,10 +141,11 @@ export interface DiscoverOptions {
 
 export class TmdbService {
   private readonly baseUrl = 'https://api.themoviedb.org/3';
+  private readonly accessToken = process.env.TMDB_ACCESS_TOKEN || '';
   private readonly apiKey = process.env.TMDB_API_KEY || '';
 
   hasValidKey(): boolean {
-    return this.apiKey.length > 0;
+    return this.accessToken.length > 0 || this.apiKey.length > 0;
   }
 
   private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
@@ -153,7 +154,7 @@ export class TmdbService {
     }
 
     const url = new URL(`${this.baseUrl}${endpoint}`);
-    url.searchParams.set('api_key', this.apiKey);
+    if (!this.accessToken) url.searchParams.set('api_key', this.apiKey);
     url.searchParams.set('language', 'pt-BR');
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
@@ -161,7 +162,10 @@ export class TmdbService {
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
       const response = await fetch(url, {
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+        },
         signal: controller.signal,
       });
       if (!response.ok) {

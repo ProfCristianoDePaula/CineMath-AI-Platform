@@ -429,7 +429,9 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'online',
     timestamp: new Date().toISOString(),
-    geminiEnabled: geminiService.isAvailable(),
+    geminiEnabled: geminiService.provider === 'gemini' && geminiService.isAvailable(),
+    aiProvider: geminiService.provider,
+    aiConfigured: geminiService.isAvailable(),
     tmdbConfigured: tmdbService.hasValidKey(),
     region: 'BR',
   });
@@ -438,8 +440,18 @@ app.get('/api/health', (_req, res) => {
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const status = typeof error === 'object' && error !== null && 'status' in error &&
     typeof error.status === 'number' ? error.status : 500;
+  const safeUpstreamErrors = [
+    'A Cloudflare recusou o token ou suas permissões para Workers AI.',
+    'Não foi possível conectar ao Workers AI da Cloudflare.',
+    'O Workers AI não conseguiu processar a solicitação.',
+    'O Workers AI retornou uma resposta inválida.',
+    'O Workers AI retornou uma resposta incompleta.',
+    'O Workers AI retornou JSON inválido.',
+    'O Workers AI retornou um resultado inválido.',
+  ];
   const message = status >= 500
-    ? (error instanceof Error && status === 503 ? error.message : 'Erro interno ao processar a solicitação.')
+    ? (error instanceof Error && (status === 503 || (status === 502 && safeUpstreamErrors.includes(error.message)))
+      ? error.message : 'Erro interno ao processar a solicitação.')
     : error instanceof Error ? error.message : 'Solicitação inválida.';
   if (status >= 500) console.error('API request failed.', { status, message });
   res.status(status).json({ success: false, error: message });
@@ -458,7 +470,7 @@ async function startServer() {
 
   app.listen(PORT, () => {
     console.info(`CineMatch AI listening on port ${PORT}.`);
-    console.info(`TMDB configured: ${tmdbService.hasValidKey()}. Gemini configured: ${geminiService.isAvailable()}.`);
+    console.info(`TMDB configured: ${tmdbService.hasValidKey()}. AI provider: ${geminiService.provider}. AI configured: ${geminiService.isAvailable()}.`);
   });
 }
 

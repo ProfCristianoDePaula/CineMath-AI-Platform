@@ -54,6 +54,18 @@
       "contentRestrictions": [],
       "familyFriendly": false,
       "updatedAt": "2026-11-07T18:21:47.653Z"
+    },
+    "102ac009-86de-4ee0-b1f7-e5374f0fa8f6": {
+      "userId": "102ac009-86de-4ee0-b1f7-e5374f0fa8f6",
+      "favoriteGenres": [],
+      "rejectedGenres": [],
+      "streamingProviders": [],
+      "preferredContentType": "all",
+      "preferredDuration": "any",
+      "preferredLanguage": "any",
+      "contentRestrictions": [],
+      "familyFriendly": false,
+      "updatedAt": "2026-11-07T18:38:07.767Z"
     }
   },
   "watchlist": [
